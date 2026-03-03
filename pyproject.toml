@@ -1,0 +1,9 @@
+[project]
+name = "aptoflow"
+version = "0.1.0"
+description = "Production-grade agentic workflow development system"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
