@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, HttpUrl
 Transmission = Literal["auto", "manual", "unknown"]
 TitleStatus = Literal["clean", "salvage", "rebuilt", "unknown"]
 SellerType = Literal["dealer", "private", "unknown"]
-Source = Literal["cargurus", "autotrader", "cars_com", "dealer_direct"]
+Source = Literal["marketcheck", "cargurus", "autotrader", "cars_com", "dealer_direct"]
 Tier = Literal["primary", "secondary"]
 ScoreBand = Literal["unicorn", "great", "good", "fair", "pass"]
 CarGurusRating = Literal["Great", "Good", "Fair", "High", "Overpriced"]

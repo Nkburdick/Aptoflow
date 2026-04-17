@@ -31,6 +31,7 @@ if _local_env.exists():
     load_dotenv(_local_env)
 
 from lib.logger import get_logger
+from lib.marketcheck import MarketCheckClient, MarketCheckConfigError
 from lib.scraping import BrightDataClient, BrightDataConfigError
 
 from .digest import (
@@ -45,6 +46,7 @@ from .models import Listing, Score, WorkflowState
 from .notify import PennyworthNotifyError, format_unicorn_sms, notify_unicorn
 from .scoring import score_listing
 from .sources.base import build_default_scrapers
+from .sources.marketcheck import fetch_all_targets as mc_fetch
 from .state import (
     load_state,
     merge_listing,
@@ -276,11 +278,44 @@ def _delta_pct_from_score(score: Score) -> float:
 
 
 def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]:
-    """Assemble and send the morning digest. Runs once a day (Modal cron)."""
+    """Fetch MarketCheck, merge into state, assemble digest, send email.
+
+    Called by both AM and PM cron functions — the function itself is stateless,
+    the Modal volume handles persistence.
+    """
     ts = now or datetime.now(timezone.utc)
     state = load_state()
 
-    # Re-score every tracked listing that passes hard filters
+    zip_code = os.environ.get("SCOUT_ZIP", "98225")
+    radius_mi = _config_int("SCOUT_RADIUS_MI", 100)
+    year_floor = _config_int("YEAR_FLOOR", 2015)
+    budget = _config_int("BUDGET_CEILING_USD", 22000)
+
+    mc_fetch_summary: dict[str, Any] = {"listings": 0, "errors": []}
+
+    # 1. Fetch fresh inventory from MarketCheck and merge into state
+    try:
+        with MarketCheckClient() as mc:
+            result = mc_fetch(
+                mc,
+                zip_code=zip_code,
+                radius_mi=radius_mi,
+                year_floor=year_floor,
+                budget_ceiling=budget,
+            )
+    except MarketCheckConfigError as exc:
+        logger.error("marketcheck_config_missing", extra={"error": str(exc)})
+        if not dry_run:
+            raise
+        mc_fetch_summary["errors"].append(f"config: {exc}")
+        result = None
+    else:
+        mc_fetch_summary["listings"] = len(result.listings)
+        mc_fetch_summary["errors"] = list(result.errors)
+        for listing in result.listings:
+            merge_listing(state, listing, now=ts)
+
+    # 2. Re-score every tracked listing that passes hard filters
     scored: list[tuple[Listing, Score]] = []
     for listing in state.listings.values():
         if not _passes_hard_filters(listing):
@@ -298,15 +333,17 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
     plaintext = render_digest_plaintext(payload)
     subject = compose_subject(payload, now=ts)
 
-    result: dict[str, Any] = {
+    summary: dict[str, Any] = {
         "started": ts.isoformat(),
         "dry_run": dry_run,
+        "marketcheck": mc_fetch_summary,
         "top_picks": len(payload.top_picks),
         "new_today": len(payload.new_today),
         "price_drops": len(payload.price_drops),
         "empty": payload.empty,
         "subject": subject,
     }
+    result = summary
 
     if dry_run:
         result["html_length"] = len(html)
@@ -353,32 +390,50 @@ _secrets = [modal.Secret.from_name("car-scout-secrets")]
 _volume = modal.Volume.from_name("car-scout-state", create_if_missing=True)
 
 
-# Scout every 2 hours, 7 days a week
-@app.function(
-    image=_image,
-    secrets=_secrets,
-    volumes={"/data": _volume},
-    schedule=modal.Cron("0 */2 * * *"),
-    timeout=900,
-)
-def scout_cron():
-    result = _run_scout_cycle()
-    _volume.commit()
-    return result
-
-
-# Digest daily at 13:30 UTC (~06:30 PDT). Accept ±1h drift during DST.
+# Morning digest — 13:30 UTC ≈ 06:30 PT (PDT) / 05:30 PT (PST)
 @app.function(
     image=_image,
     secrets=_secrets,
     volumes={"/data": _volume},
     schedule=modal.Cron("30 13 * * *"),
-    timeout=180,
+    timeout=300,
 )
-def digest_cron():
+def digest_cron_am():
     result = _run_digest()
     _volume.commit()
     return result
+
+
+# Evening digest — 01:30 UTC ≈ 18:30 PT (PDT) / 17:30 PT (PST)
+@app.function(
+    image=_image,
+    secrets=_secrets,
+    volumes={"/data": _volume},
+    schedule=modal.Cron("30 1 * * *"),
+    timeout=300,
+)
+def digest_cron_pm():
+    result = _run_digest()
+    _volume.commit()
+    return result
+
+
+# V1.1 — Bright Data scout every 2h for real-time unicorn SMS. Commented out
+# until Autotrader + Cars.com scrapers land (CarGurus blocked via robots.txt).
+# The _run_scout_cycle function + underlying modules remain fully wired and
+# tested; only the Modal schedule is absent.
+#
+# @app.function(
+#     image=_image,
+#     secrets=_secrets,
+#     volumes={"/data": _volume},
+#     schedule=modal.Cron("0 */2 * * *"),
+#     timeout=900,
+# )
+# def scout_cron():
+#     result = _run_scout_cycle()
+#     _volume.commit()
+#     return result
 
 
 # ─── Local CLI ───────────────────────────────────────────────────────────────
