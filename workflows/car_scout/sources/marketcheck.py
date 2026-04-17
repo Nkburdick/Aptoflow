@@ -6,6 +6,8 @@ Used by the daily digest path. Different from the Bright Data scrape path
 
 from __future__ import annotations
 
+import time
+
 from lib.logger import get_logger
 from lib.marketcheck import MarketCheckClient, MCListing
 
@@ -108,7 +110,12 @@ def fetch_all_targets(
     """
     result = SourceResult(source_name="marketcheck")
 
-    for make, model in sorted(ALL_TARGET_MAKES_MODELS):
+    # MarketCheck free tier caps at 5 req/sec. We pace at 250ms between buckets
+    # (4 req/sec) with a small safety margin. Over 7 buckets: ~1.75s total —
+    # negligible compared to network latency.
+    for i, (make, model) in enumerate(sorted(ALL_TARGET_MAKES_MODELS)):
+        if i > 0:
+            time.sleep(0.25)
         try:
             mc_items = client.search_active(
                 make=make,

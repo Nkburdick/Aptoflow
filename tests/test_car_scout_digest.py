@@ -310,42 +310,57 @@ class TestComposeSubject:
 
 
 class TestSendDigest:
-    def test_raises_on_missing_config(self, monkeypatch):
-        for v in (
-            "APTOFLOW_SMTP_HOST",
-            "APTOFLOW_SMTP_USERNAME",
-            "APTOFLOW_SMTP_PASSWORD",
-            "CAR_SCOUT_DIGEST_FROM",
-            "CAR_SCOUT_DIGEST_TO",
-        ):
-            monkeypatch.delenv(v, raising=False)
-
-        with pytest.raises(DigestSendError, match="Missing"):
+    def test_raises_on_missing_recipient(self, monkeypatch):
+        monkeypatch.delenv("CAR_SCOUT_DIGEST_TO", raising=False)
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        with pytest.raises(DigestSendError, match="recipient"):
             send_digest(html="<h1></h1>", plaintext="", subject="S")
 
-    def test_sends_via_smtp(self, monkeypatch):
-        monkeypatch.setenv("APTOFLOW_SMTP_HOST", "smtp.example")
-        monkeypatch.setenv("APTOFLOW_SMTP_PORT", "587")
-        monkeypatch.setenv("APTOFLOW_SMTP_USERNAME", "from@x")
-        monkeypatch.setenv("APTOFLOW_SMTP_PASSWORD", "pw")
-        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "from@x")
+    def test_raises_when_resend_key_missing(self, monkeypatch):
         monkeypatch.setenv("CAR_SCOUT_DIGEST_TO", "to@y")
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        with pytest.raises(DigestSendError, match="RESEND_API_KEY"):
+            send_digest(html="<h1></h1>", plaintext="", subject="S")
 
-        mock_smtp = MagicMock()
-        mock_ctx = MagicMock()
-        mock_ctx.__enter__ = MagicMock(return_value=mock_smtp)
-        mock_ctx.__exit__ = MagicMock(return_value=False)
+    def test_sends_via_resend(self, monkeypatch):
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_TO", "nick@aptoworks.com")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
 
-        with patch("workflows.car_scout.digest.smtplib.SMTP", return_value=mock_ctx) as mock_ctor:
-            send_digest(html="<h1>ok</h1>", plaintext="ok", subject="Test")
+        from lib.email import ResendClient, SendResult
 
-        mock_ctor.assert_called_once_with("smtp.example", 587, timeout=30)
-        mock_smtp.starttls.assert_called_once()
-        mock_smtp.login.assert_called_once_with("from@x", "pw")
-        mock_smtp.sendmail.assert_called_once()
-        # Verify the sent message has both HTML and plain parts (base64-encoded
-        # bodies mean we check MIME headers instead of raw content).
-        sent_msg = mock_smtp.sendmail.call_args.args[2]
-        assert "Subject: Test" in sent_msg
-        assert 'Content-Type: text/plain; charset="utf-8"' in sent_msg
-        assert 'Content-Type: text/html; charset="utf-8"' in sent_msg
+        mock_client = MagicMock(spec=ResendClient)
+        mock_client.send.return_value = SendResult(id="email_123")
+
+        send_digest(
+            html="<h1>ok</h1>",
+            plaintext="ok",
+            subject="Test",
+            client=mock_client,
+        )
+
+        mock_client.send.assert_called_once()
+        kwargs = mock_client.send.call_args.kwargs
+        assert kwargs["from_address"] == "alfred@aptoworks.com"
+        assert kwargs["to"] == "nick@aptoworks.com"
+        assert kwargs["subject"] == "Test"
+        assert kwargs["html"] == "<h1>ok</h1>"
+        assert kwargs["text"] == "ok"
+        assert kwargs["reply_to"] == "nick@aptoworks.com"
+
+    def test_wraps_send_errors(self, monkeypatch):
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_TO", "nick@aptoworks.com")
+
+        from lib.email import ResendClient, ResendSendError
+
+        mock_client = MagicMock(spec=ResendClient)
+        mock_client.send.side_effect = ResendSendError("Resend returned 422: bad from domain")
+
+        with pytest.raises(DigestSendError, match="422"):
+            send_digest(
+                html="<h1></h1>",
+                plaintext="",
+                subject="Test",
+                client=mock_client,
+            )

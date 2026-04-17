@@ -27,13 +27,15 @@ cp .env.example .env
 ```
 
 Required:
-- `OPENROUTER_API_KEY` — for future LLM-based red-flag scanning (V1.1)
-- `BRIGHTDATA_ZONE`, `BRIGHTDATA_USERNAME`, `BRIGHTDATA_PASSWORD` — Bright Data Web Unlocker creds
-- `APTOFLOW_SMTP_*` + `CAR_SCOUT_DIGEST_*` — Gmail SMTP for the digest email
-- `AOL_API_TOKEN` — Pennyworth API token (same one used elsewhere)
+- `MARKETCHECK_API_KEY` — MarketCheck free tier (500 calls/mo — fits twice-daily cadence)
+- `RESEND_API_KEY` — Resend transactional email (aptoworks.com DNS-verified)
+- `CAR_SCOUT_DIGEST_FROM=alfred@aptoworks.com`, `CAR_SCOUT_DIGEST_TO=nick@aptoworks.com`
+- `AOL_API_TOKEN` — Pennyworth API token (shared with other AptoFlow workflows)
 
 Optional:
-- `VINAUDIT_API_KEY` — vehicle history (Tier B, unicorn candidates only) — deferred to V1.1
+- `OPENROUTER_API_KEY` — reserved for V1.1 LLM-based red-flag scanning
+- `BRIGHTDATA_*` — reserved for V1.1 real-time unicorn SMS scout path
+- `VINAUDIT_API_KEY` — V1.1 vehicle-history Tier B, unicorn candidates only
 
 ### 2. Local dry-run
 
@@ -50,20 +52,19 @@ Ensure `car-scout-secrets` exists as a Modal secret with all env vars:
 
 ```bash
 modal secret create car-scout-secrets \
-  OPENROUTER_API_KEY=... \
-  BRIGHTDATA_ZONE=... \
-  BRIGHTDATA_USERNAME=... \
-  BRIGHTDATA_PASSWORD=... \
-  APTOFLOW_SMTP_HOST=smtp.gmail.com \
-  APTOFLOW_SMTP_PORT=587 \
-  APTOFLOW_SMTP_USERNAME=alfred@aptoworks.com \
-  APTOFLOW_SMTP_PASSWORD=... \
+  MARKETCHECK_API_KEY=... \
+  RESEND_API_KEY=re_... \
   CAR_SCOUT_DIGEST_FROM=alfred@aptoworks.com \
   CAR_SCOUT_DIGEST_TO=nick@aptoworks.com \
   PENNYWORTH_BASE_URL=https://pw.aptoworks.cloud \
   AOL_API_TOKEN=... \
   SCOUT_ZIP=98225 \
-  SCOUT_RADIUS_MI=100
+  SCOUT_RADIUS_MI=100 \
+  BUDGET_CEILING_USD=22000 \
+  YEAR_FLOOR=2015 \
+  PRIMARY_MILEAGE_CEILING=80000 \
+  SECONDARY_MILEAGE_CEILING=110000 \
+  UNICORN_SMS_DAILY_CAP=3
 ```
 
 Deploy:
@@ -72,9 +73,11 @@ Deploy:
 modal deploy workflows/car_scout/main.py
 ```
 
-Two cron functions will appear in the Modal dashboard:
-- `scout_cron` — every 2h
-- `digest_cron` — daily at 13:30 UTC (~06:30 PT)
+Two scheduled functions will appear in the Modal dashboard:
+- `digest_cron_am` — daily at 13:30 UTC (~06:30 PT morning digest)
+- `digest_cron_pm` — daily at 01:30 UTC (~18:30 PT evening refresh)
+
+V1.1 will re-enable `scout_cron` every 2h for real-time unicorn SMS.
 
 ## Retirement
 

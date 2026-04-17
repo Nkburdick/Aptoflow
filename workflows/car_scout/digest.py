@@ -13,16 +13,14 @@ Section rules (from plan):
 from __future__ import annotations
 
 import os
-import smtplib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Iterable
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from lib.email import ResendClient, ResendConfigError, ResendSendError
 from lib.logger import get_logger
 
 from .models import Listing, Score, ScoreBand, WorkflowState
@@ -351,7 +349,7 @@ def render_digest_plaintext(payload: DigestPayload) -> str:
 
 
 class DigestSendError(Exception):
-    """Raised when SMTP send fails."""
+    """Raised when send fails (config missing or Resend API rejected)."""
 
 
 def send_digest(
@@ -361,49 +359,32 @@ def send_digest(
     subject: str,
     sender: str | None = None,
     recipient: str | None = None,
-    smtp_host: str | None = None,
-    smtp_port: int | None = None,
-    smtp_user: str | None = None,
-    smtp_password: str | None = None,
+    client: ResendClient | None = None,
 ) -> None:
-    """Send the digest via SMTP. Defaults to env vars for all config."""
-    sender = sender or os.environ.get("CAR_SCOUT_DIGEST_FROM", os.environ.get("APTOFLOW_SMTP_USERNAME", ""))
+    """Send the digest via Resend. Defaults to env vars for addresses."""
+    sender = sender or os.environ.get("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
     recipient = recipient or os.environ.get("CAR_SCOUT_DIGEST_TO", "")
-    smtp_host = smtp_host or os.environ.get("APTOFLOW_SMTP_HOST", "smtp.gmail.com")
-    smtp_port = smtp_port or int(os.environ.get("APTOFLOW_SMTP_PORT", "587"))
-    smtp_user = smtp_user or os.environ.get("APTOFLOW_SMTP_USERNAME", "")
-    smtp_password = smtp_password or os.environ.get("APTOFLOW_SMTP_PASSWORD", "")
 
-    missing = [
-        name
-        for name, val in (
-            ("sender", sender),
-            ("recipient", recipient),
-            ("smtp_host", smtp_host),
-            ("smtp_user", smtp_user),
-            ("smtp_password", smtp_password),
-        )
-        if not val
-    ]
+    missing = [name for name, val in (("sender", sender), ("recipient", recipient)) if not val]
     if missing:
-        raise DigestSendError(f"Missing SMTP config: {', '.join(missing)}")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg["Reply-To"] = recipient  # replies go to Nick, not alfred@
-
-    msg.attach(MIMEText(plaintext, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
+        raise DigestSendError(f"Missing digest config: {', '.join(missing)}")
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(sender, [recipient], msg.as_string())
-    except (smtplib.SMTPException, OSError) as exc:
-        raise DigestSendError(f"SMTP send failed: {exc}") from exc
+        resend = client or ResendClient()
+    except ResendConfigError as exc:
+        raise DigestSendError(str(exc)) from exc
+
+    try:
+        resend.send(
+            from_address=sender,
+            to=recipient,
+            subject=subject,
+            html=html,
+            text=plaintext,
+            reply_to=recipient,  # replies land in Nick's inbox, not alfred@
+        )
+    except ResendSendError as exc:
+        raise DigestSendError(str(exc)) from exc
 
     logger.info(
         "digest_sent",
