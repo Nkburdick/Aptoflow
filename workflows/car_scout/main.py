@@ -54,6 +54,7 @@ from .state import (
     record_sms,
     save_state,
 )
+from .title_filter import evaluate_title
 from .unicorn import evaluate_unicorn
 
 logger = get_logger("car-scout.main")
@@ -227,9 +228,18 @@ def _run_scout_cycle(*, dry_run: bool = False, now: datetime | None = None) -> d
 
 
 def _passes_hard_filters(listing: Listing) -> bool:
-    """Apply the car_scout hard-filter rules (plan §Filters)."""
-    # Title: clean or unknown only
-    if listing.title_status in ("salvage", "rebuilt"):
+    """Apply the car_scout hard-filter rules (plan §Filters + title heuristics)."""
+    # Title quality — explicit branded rejection + dealer/text blocklist
+    title_decision = evaluate_title(listing)
+    if not title_decision.passes:
+        logger.info(
+            "filtered_on_title",
+            extra={
+                "url": str(listing.url),
+                "dealer": listing.dealer_name,
+                "reasons": title_decision.reasons,
+            },
+        )
         return False
 
     # Budget cap
