@@ -95,7 +95,7 @@ class TestScore:
             cargurus_component=100.0,
             market_delta_component=80.0,
             mileage_component=90.0,
-            redflag_penalty=0.0,
+            redflag_component=100.0,
             total=91.0,
             band="great",
         )

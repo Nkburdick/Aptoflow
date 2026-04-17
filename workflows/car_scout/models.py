@@ -85,11 +85,11 @@ class Score(BaseModel):
     listing_url: HttpUrl
     computed_at: datetime = Field(default_factory=_utc_now)
 
-    # Components (0-100 each except red-flag which is penalty)
+    # Components (0-100 each)
     cargurus_component: float
     market_delta_component: float
     mileage_component: float
-    redflag_penalty: float  # 0 (clean) to -30 (severe)
+    redflag_component: float  # 0 (deal-breaker flags) to 100 (clean description)
 
     total: float
     band: ScoreBand
