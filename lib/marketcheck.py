@@ -74,6 +74,8 @@ class MCListing:
     model: str
     trim: str | None
     heading: str
+    exterior_color: str | None
+    base_ext_color: str | None
 
     # Listing metadata
     price: int
@@ -277,6 +279,8 @@ class MarketCheckClient:
             model=model,
             trim=trim if trim else None,
             heading=heading,
+            exterior_color=raw.get("exterior_color") if isinstance(raw.get("exterior_color"), str) else None,
+            base_ext_color=raw.get("base_ext_color") if isinstance(raw.get("base_ext_color"), str) else None,
             price=int(price),
             miles=int(miles),
             msrp=_as_int(raw.get("msrp")),

@@ -387,10 +387,16 @@ def _verify_pending_titles(state: WorkflowState, *, dry_run: bool) -> dict[str, 
 
         if result.fetch_error:
             summary["errors"] += 1
-            # Cache "unknown" so we don't re-fetch every run on persistent
-            # failures (dead URL, dealer site down, etc.)
-            state.title_verifications[listing.dedup_key()] = "unknown"
-            summary["unknown"] += 1
+            # 404 → dead listing (sold/delisted); evict from state entirely.
+            # Other errors (timeouts, 5xx) → transient; leave listing but
+            # DON'T cache a verdict so the next run retries the VDP fetch.
+            if "404" in result.fetch_error:
+                del state.listings[listing.dedup_key()]
+                logger.info(
+                    "vdp_dead_link_evicted",
+                    extra={"url": url, "dealer": listing.dealer_name},
+                )
+            # else: no cache entry → next digest run re-tries this URL
             continue
 
         state.title_verifications[listing.dedup_key()] = result.verdict

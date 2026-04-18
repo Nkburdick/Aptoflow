@@ -34,6 +34,15 @@ def _title_status_from(mc: MCListing) -> TitleStatus:
     return "unknown"
 
 
+def _raw_exterior_color(mc: MCListing) -> str | None:
+    """Prefer raw exterior_color, fall back to nothing. MarketCheck ships both
+    `exterior_color` (marketing name: 'Cosmic Blue Pearl') and `base_ext_color`
+    (canonical: 'Blue') — either works for the filter, marketing names give
+    richer logs for tuning."""
+    # MCListing model only holds the one field right now; prefer that.
+    return getattr(mc, "exterior_color", None)
+
+
 def _to_canonical(mc: MCListing) -> Listing | None:
     tier = tier_for(mc.make, mc.model)
     if tier is None:
@@ -73,6 +82,7 @@ def _to_canonical(mc: MCListing) -> Listing | None:
             trim=mc.trim,
             transmission=transmission,
             mileage=mc.miles,
+            exterior_color=_raw_exterior_color(mc),
             price=mc.price,
             price_history=price_history,
             title_status=title_status,
