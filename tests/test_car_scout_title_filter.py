@@ -73,13 +73,25 @@ class TestEvaluateTitle:
             "Seattle Salvage Auto",
             "Rebuilt Rides NW",
             "Reconstructed Cars Co",
-            "Wholesale Direct",
-            "Auction Direct Motors",
         ],
     )
-    def test_other_blocklist_dealers_rejected(self, dealer_name):
+    def test_self_declaring_dealers_rejected(self, dealer_name):
         decision = evaluate_title(_listing(dealer_name=dealer_name))
         assert decision.passes is False
+
+    @pytest.mark.parametrize(
+        "dealer_name",
+        [
+            "Wholesale Direct",      # legit wholesalers exist
+            "Auction Direct Motors", # could be legit auction reseller
+            "Discount Auto",         # just means "bargain priced"
+        ],
+    )
+    def test_ambiguous_dealer_names_admitted(self, dealer_name):
+        """These words aren't self-declaring branded-title dealers.
+        VDP scan handles verification; we don't pre-block by name."""
+        decision = evaluate_title(_listing(dealer_name=dealer_name))
+        assert decision.passes is True
 
     def test_listing_description_blocklist(self):
         l = _listing(description="Beautiful car with rebuilt title, runs great")

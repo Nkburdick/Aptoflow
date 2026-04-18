@@ -29,22 +29,20 @@ from .models import Listing
 # Case-insensitive substring match against dealer_name or listing heading.
 # Ordered by confidence: top entries are near-zero-false-positive.
 DEALER_BLOCKLIST_PATTERNS: tuple[str, ...] = (
-    # Rebuilt-title specialty dealers — Nick-flagged over live runs
+    # Nick-confirmed rebuilt-title specialty dealers (individual calls)
     "premium spec auto",   # Nick 2026-04-17
-    "exelon auto sales",   # Nick 2026-04-18 — every listing surfaced was rebuilt
-    # Generic red-flag substrings — these dealer names almost never sell
-    # clean-title cars to consumers
-    "spec auto",
+    "exelon auto sales",   # Nick 2026-04-18 — three of their listings all rebuilt
+    # Self-declaring keywords — no legit dealer puts these in their own name
+    "spec auto",           # catches "Top Spec Auto" etc. as well
     "salvage",
     "rebuilt",
     "reconstructed",
-    "wholesale",
-    "auction direct",
+    "repairables",
     "branded title",
     "title branded",
-    "repairables",
-    "r&d auto",
-    "discount auto",
+    # 2026-04-18: Removed ambiguous patterns ("wholesale", "auction direct",
+    # "discount auto", "r&d auto") — VDP scan handles dealers whose names
+    # aren't self-declaring. Blocklist grows case-by-case as Nick flags.
 )
 
 # Words that, when found in listing heading or description, indicate
