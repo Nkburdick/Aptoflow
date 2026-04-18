@@ -29,8 +29,9 @@ from .models import Listing
 # Case-insensitive substring match against dealer_name or listing heading.
 # Ordered by confidence: top entries are near-zero-false-positive.
 DEALER_BLOCKLIST_PATTERNS: tuple[str, ...] = (
-    # Rebuilt-title specialty dealers — Nick-flagged 2026-04-17
-    "premium spec auto",
+    # Rebuilt-title specialty dealers — Nick-flagged over live runs
+    "premium spec auto",   # Nick 2026-04-17
+    "exelon auto sales",   # Nick 2026-04-18 — every listing surfaced was rebuilt
     # Generic red-flag substrings — these dealer names almost never sell
     # clean-title cars to consumers
     "spec auto",

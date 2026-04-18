@@ -75,6 +75,18 @@ def merge_listing(state: WorkflowState, incoming: Listing, now: datetime | None 
     ts = now or datetime.now(timezone.utc)
     key = incoming.dedup_key()
 
+    # Permanent branded-cache rejection — once a VIN/URL has been verified as
+    # a rebuilt/salvage listing via VDP scan, don't let MarketCheck's next
+    # fetch quietly re-insert the same vehicle back into state.
+    if state.title_verifications.get(key) == "branded":
+        # Still record the comp observation (useful market data) but drop the
+        # listing itself so it never re-enters the digest pipeline.
+        bucket = comp_key(incoming.year, incoming.make, incoming.model)
+        state.comps.setdefault(bucket, []).append(
+            PriceObservation(timestamp=ts, price=incoming.price)
+        )
+        return incoming
+
     existing = state.listings.get(key)
     if existing is None:
         # New listing
