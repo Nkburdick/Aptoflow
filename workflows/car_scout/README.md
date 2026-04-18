@@ -29,12 +29,12 @@ cp .env.example .env
 Required:
 - `MARKETCHECK_API_KEY` — MarketCheck free tier (500 calls/mo — fits twice-daily cadence)
 - `RESEND_API_KEY` — Resend transactional email (aptoworks.com DNS-verified)
+- `BRIGHTDATA_ZONE`, `BRIGHTDATA_USERNAME`, `BRIGHTDATA_PASSWORD` — Web Unlocker zone for per-VIN VDP title verification
 - `CAR_SCOUT_DIGEST_FROM=alfred@aptoworks.com`, `CAR_SCOUT_DIGEST_TO=nick@aptoworks.com`
-- `AOL_API_TOKEN` — Pennyworth API token (shared with other AptoFlow workflows)
 
 Optional:
+- `AOL_API_TOKEN` — Pennyworth API token, only needed when V1.1 unicorn SMS ships
 - `OPENROUTER_API_KEY` — reserved for V1.1 LLM-based red-flag scanning
-- `BRIGHTDATA_*` — reserved for V1.1 real-time unicorn SMS scout path
 - `VINAUDIT_API_KEY` — V1.1 vehicle-history Tier B, unicorn candidates only
 
 ### 2. Local dry-run
@@ -54,17 +54,17 @@ Ensure `car-scout-secrets` exists as a Modal secret with all env vars:
 modal secret create car-scout-secrets \
   MARKETCHECK_API_KEY=... \
   RESEND_API_KEY=re_... \
+  BRIGHTDATA_ZONE=aptoflow_unblocker \
+  BRIGHTDATA_USERNAME=brd-customer-hl_... \
+  BRIGHTDATA_PASSWORD=... \
   CAR_SCOUT_DIGEST_FROM=alfred@aptoworks.com \
   CAR_SCOUT_DIGEST_TO=nick@aptoworks.com \
-  PENNYWORTH_BASE_URL=https://pw.aptoworks.cloud \
-  AOL_API_TOKEN=... \
   SCOUT_ZIP=98225 \
   SCOUT_RADIUS_MI=100 \
   BUDGET_CEILING_USD=22000 \
   YEAR_FLOOR=2015 \
   PRIMARY_MILEAGE_CEILING=80000 \
-  SECONDARY_MILEAGE_CEILING=110000 \
-  UNICORN_SMS_DAILY_CAP=3
+  SECONDARY_MILEAGE_CEILING=110000
 ```
 
 Deploy:

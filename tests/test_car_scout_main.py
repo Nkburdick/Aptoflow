@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from workflows.car_scout.main import _passes_hard_filters
+import pytest
+
+from workflows.car_scout.main import _color_ok, _passes_hard_filters
 from workflows.car_scout.models import Listing
 
 
@@ -20,6 +22,7 @@ def _listing(**overrides) -> Listing:
         price=19900,
         title_status="clean",
         tier="primary",
+        exterior_color="Crystal Black Silica",  # dark color, allowed
     )
     base.update(overrides)
     return Listing(**base)
@@ -66,3 +69,49 @@ class TestHardFilters:
         assert _passes_hard_filters(
             _listing(make="Toyota", model="RAV4", tier="secondary", mileage=115000)
         ) is False
+
+
+class TestColorFilter:
+    @pytest.mark.parametrize(
+        "color",
+        [
+            "Crystal Black Silica", "Black", "Magnetite Gray Metallic",
+            "Charcoal Gray", "Dark Gray", "Navy Blue", "Cosmic Blue Pearl",
+            "Autumn Green Metallic", "Espresso Brown", "Maroon",
+        ],
+    )
+    def test_allowed_dark_colors_admit(self, color):
+        assert _color_ok(_listing(exterior_color=color)) is True, color
+
+    @pytest.mark.parametrize(
+        "color",
+        [
+            "White", "Crystal White Pearl", "Silver", "Ice Silver Metallic",
+            "Beige", "Ivory", "Gold Metallic", "Pumpkin Orange",
+            "Yellow", "Pink", "Tan Metallic",
+        ],
+    )
+    def test_blocked_bright_colors_reject(self, color):
+        assert _color_ok(_listing(exterior_color=color)) is False, color
+
+    def test_pearl_alone_does_not_block(self):
+        # "Cosmic Blue Pearl" = blue (allowed) with pearl finish — admit
+        assert _color_ok(_listing(exterior_color="Cosmic Blue Pearl")) is True
+
+    def test_unknown_color_admits(self):
+        # Missing color — can't judge, admit
+        assert _color_ok(_listing(exterior_color=None)) is True
+
+    def test_unmatched_color_admits(self):
+        # Exotic color name we haven't classified — admit and log
+        assert _color_ok(_listing(exterior_color="Matte Teal Chameleon")) is True
+
+    def test_color_filter_integrates_into_hard_filter(self):
+        bright = _listing(exterior_color="Crystal White Pearl")
+        assert _passes_hard_filters(bright) is False
+
+    def test_burgundy_is_admitted(self):
+        # Dark red = burgundy, admit
+        assert _color_ok(_listing(exterior_color="Dark Burgundy")) is True
+        # But bright red rejected
+        assert _color_ok(_listing(exterior_color="Ruby Red")) is False

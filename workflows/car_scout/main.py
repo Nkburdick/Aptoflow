@@ -55,6 +55,7 @@ from .state import (
     save_state,
 )
 from .title_filter import evaluate_title
+from .title_vdp import verify_titles_parallel
 from .unicorn import evaluate_unicorn
 
 logger = get_logger("car-scout.main")
@@ -227,6 +228,77 @@ def _run_scout_cycle(*, dry_run: bool = False, now: datetime | None = None) -> d
 # ─── Hard filters ─────────────────────────────────────────────────────────────
 
 
+# Exterior-color allowlist — Nick 2026-04-17: Owen's family prefers darker
+# colors only. Values match what MarketCheck typically returns in
+# `exterior_color` / `base_ext_color`. Matching is case-insensitive substring.
+ALLOWED_EXTERIOR_COLORS: tuple[str, ...] = (
+    "black",
+    "gray", "grey",
+    "charcoal",
+    "graphite",
+    "navy", "blue",      # includes "dark blue", "navy blue", "cosmic blue"
+    "green",              # Subaru dark greens ("autumn green", "cypress green")
+    "brown", "espresso",
+    "burgundy", "maroon",
+    "crimson",
+    "gunmetal",
+)
+
+BLOCKED_EXTERIOR_COLORS: tuple[str, ...] = (
+    "white",
+    "silver",
+    "ivory",
+    "beige",
+    "tan",
+    "gold",
+    "yellow",
+    "orange",
+    "red",     # bright red — Nick: "not bright colors"; dark reds like burgundy/crimson handled in allowlist
+    "pink",
+)
+# "pearl" intentionally omitted — Subaru uses names like "Cosmic Blue Pearl"
+# and "Crystal Black Silica" where pearl describes a finish, not a base color.
+# We trust the allowlist to catch base-color intent.
+
+
+def _color_ok(listing: Listing) -> bool:
+    """Return True if the listing's exterior color passes Nick's dark-color filter.
+
+    Rules:
+    - Unknown/missing color → admit (we can't judge — let human verify)
+    - Blocklist hit on any color field → reject (white, silver, red, etc.)
+    - Allowlist hit on any color field → admit
+    - Neither → admit (unusual names default to admit, logged for later tuning)
+    """
+    fields = [listing.exterior_color]
+    # Only exterior_color is currently mapped; base_ext_color can be added if
+    # MarketCheck's raw field is surfaced in the future.
+
+    any_known = False
+    for raw in fields:
+        if not raw:
+            continue
+        low = raw.lower()
+        any_known = True
+        for blocked in BLOCKED_EXTERIOR_COLORS:
+            if blocked in low:
+                return False
+        for allowed in ALLOWED_EXTERIOR_COLORS:
+            if allowed in low:
+                return True
+
+    if not any_known:
+        return True  # unknown color is admitted — user verifies
+
+    # Color data present but didn't match allow or block — admit + let user
+    # judge. Log so we can tune the lists over time.
+    logger.info(
+        "color_unmatched_admitted",
+        extra={"url": str(listing.url), "exterior_color": listing.exterior_color},
+    )
+    return True
+
+
 def _passes_hard_filters(listing: Listing) -> bool:
     """Apply the car_scout hard-filter rules (plan §Filters + title heuristics)."""
     # Title quality — explicit branded rejection + dealer/text blocklist
@@ -239,6 +311,14 @@ def _passes_hard_filters(listing: Listing) -> bool:
                 "dealer": listing.dealer_name,
                 "reasons": title_decision.reasons,
             },
+        )
+        return False
+
+    # Color: darker colors only, no white / silver / red / etc.
+    if not _color_ok(listing):
+        logger.info(
+            "filtered_on_color",
+            extra={"url": str(listing.url), "exterior_color": listing.exterior_color},
         )
         return False
 
@@ -265,6 +345,76 @@ def _passes_hard_filters(listing: Listing) -> bool:
     # flagged with a strong deal score, but our hard filter admits both and
     # lets the unicorn matcher / digest decide).
     return True
+
+
+def _verify_pending_titles(state: WorkflowState, *, dry_run: bool) -> dict[str, Any]:
+    """VDP-fetch every unverified listing via parallel Bright Data requests.
+
+    - Only fetches listings that survived the cheap blocklist + color filters
+    - Branded-verdict listings are REMOVED from state (permanent rejection)
+    - Clean + unknown verdicts cached forever per dedup_key
+    - Returns summary counts for digest run metadata
+    """
+    summary = {"checked": 0, "branded": 0, "clean": 0, "unknown": 0, "errors": 0}
+
+    # Narrow the candidate set before incurring fetch costs. Only verify
+    # listings that would otherwise make it to scoring.
+    candidates = [
+        l for l in state.listings.values()
+        if evaluate_title(l).passes
+        and _color_ok(l)
+        and l.dedup_key() not in state.title_verifications
+    ]
+
+    if not candidates:
+        return summary
+
+    # Map URL → listing for lookup after parallel fetch
+    url_to_listing = {str(l.url): l for l in candidates}
+
+    try:
+        results = verify_titles_parallel(url_to_listing.keys())
+    except BrightDataConfigError as exc:
+        logger.warning(
+            "vdp_verify_skipped_no_brightdata",
+            extra={"error": str(exc), "candidates": len(candidates)},
+        )
+        return summary
+
+    for url, result in results.items():
+        listing = url_to_listing[url]
+        summary["checked"] += 1
+
+        if result.fetch_error:
+            summary["errors"] += 1
+            # Cache "unknown" so we don't re-fetch every run on persistent
+            # failures (dead URL, dealer site down, etc.)
+            state.title_verifications[listing.dedup_key()] = "unknown"
+            summary["unknown"] += 1
+            continue
+
+        state.title_verifications[listing.dedup_key()] = result.verdict
+
+        if result.verdict == "branded":
+            summary["branded"] += 1
+            del state.listings[listing.dedup_key()]
+            logger.info(
+                "vdp_branded_rejected",
+                extra={
+                    "url": url,
+                    "dealer": listing.dealer_name,
+                    "phrase": result.matched_branded_phrase,
+                },
+            )
+        elif result.verdict == "clean":
+            summary["clean"] += 1
+            if listing.title_status == "unknown":
+                listing.title_status = "clean"
+        else:
+            summary["unknown"] += 1
+
+    logger.info("vdp_verify_batch_complete", extra=summary)
+    return summary
 
 
 def _delta_pct_from_score(score: Score) -> float:
@@ -325,7 +475,12 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         for listing in result.listings:
             merge_listing(state, listing, now=ts)
 
-    # 2. Re-score every tracked listing that passes hard filters
+    # 2. VDP title verification for listings that passed cheap filters but
+    #    aren't yet cached. One HTTP call per unverified VIN, result persists
+    #    forever. Branded listings get removed from state entirely.
+    vdp_summary = _verify_pending_titles(state, dry_run=dry_run)
+
+    # 3. Re-score every tracked listing that passes hard filters
     scored: list[tuple[Listing, Score]] = []
     for listing in state.listings.values():
         if not _passes_hard_filters(listing):
@@ -347,6 +502,7 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         "started": ts.isoformat(),
         "dry_run": dry_run,
         "marketcheck": mc_fetch_summary,
+        "vdp_title_verification": vdp_summary,
         "top_picks": len(payload.top_picks),
         "new_today": len(payload.new_today),
         "price_drops": len(payload.price_drops),
@@ -401,12 +557,14 @@ _volume = modal.Volume.from_name("car-scout-state", create_if_missing=True)
 
 
 # Morning digest — 13:30 UTC ≈ 06:30 PT (PDT) / 05:30 PT (PST)
+# Timeout 900s: first cold-start run does VDP-verify on ~200 new URLs (~5-6 min
+# with 10 parallel workers). Steady state after day 1 is mostly cache hits <30s.
 @app.function(
     image=_image,
     secrets=_secrets,
     volumes={"/data": _volume},
     schedule=modal.Cron("30 13 * * *"),
-    timeout=300,
+    timeout=900,
 )
 def digest_cron_am():
     result = _run_digest()
@@ -420,7 +578,7 @@ def digest_cron_am():
     secrets=_secrets,
     volumes={"/data": _volume},
     schedule=modal.Cron("30 1 * * *"),
-    timeout=300,
+    timeout=900,
 )
 def digest_cron_pm():
     result = _run_digest()

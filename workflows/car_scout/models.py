@@ -124,6 +124,11 @@ class WorkflowState(BaseModel):
     # Digest dedupe — URLs featured in Top Picks in the last 7 days
     top_picks_last_7_days: dict[str, datetime] = Field(default_factory=dict)
 
+    # Per-listing VDP title verification cache (dedup_key -> "clean"|"branded"|"unknown").
+    # Once verified, a listing never re-fetches. Cleared only when a listing is
+    # pruned from state via prune_old.
+    title_verifications: dict[str, str] = Field(default_factory=dict)
+
     # Bookkeeping
     last_scout_run: datetime | None = None
     last_digest_sent: datetime | None = None
