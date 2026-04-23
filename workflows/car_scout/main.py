@@ -45,7 +45,7 @@ from .digest import (
 from .models import Listing, Score, WorkflowState
 from .notify import PennyworthNotifyError, format_unicorn_sms, notify_unicorn
 from .scoring import score_listing
-from .sources.base import build_default_scrapers
+from .sources.base import build_default_scrapers, build_dealer_direct_scraper
 from .sources.marketcheck import fetch_all_targets as mc_fetch
 from .state import (
     load_state,
@@ -481,6 +481,27 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         for listing in result.listings:
             merge_listing(state, listing, now=ts)
 
+    # 1b. Pull Subaru trade-ins from local non-Subaru dealers that MarketCheck
+    #     routinely misses (Bellingham Ford, Toyota of Bellingham, Audi
+    #     Bellingham). Dedupes against MarketCheck listings by VIN via merge_listing.
+    dealer_direct_summary: dict[str, Any] = {"listings": 0, "errors": []}
+    try:
+        with BrightDataClient() as bd_client:
+            try:
+                dd_result = build_dealer_direct_scraper(bd_client).scrape()
+            except Exception as exc:  # noqa: BLE001 — never kill the digest cycle
+                logger.error("dealer_direct_scrape_crashed", extra={"error": str(exc)})
+                dealer_direct_summary["errors"].append(f"scrape: {exc}")
+            else:
+                dealer_direct_summary["listings"] = len(dd_result.listings)
+                dealer_direct_summary["errors"] = list(dd_result.errors)
+                dealer_direct_summary["pages_fetched"] = dd_result.pages_fetched
+                for listing in dd_result.listings:
+                    merge_listing(state, listing, now=ts)
+    except BrightDataConfigError as exc:
+        logger.warning("dealer_direct_brightdata_missing", extra={"error": str(exc)})
+        dealer_direct_summary["errors"].append(f"brightdata_config: {exc}")
+
     # 2. VDP title verification for listings that passed cheap filters but
     #    aren't yet cached. One HTTP call per unverified VIN, result persists
     #    forever. Branded listings get removed from state entirely.
@@ -508,6 +529,7 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         "started": ts.isoformat(),
         "dry_run": dry_run,
         "marketcheck": mc_fetch_summary,
+        "dealer_direct": dealer_direct_summary,
         "vdp_title_verification": vdp_summary,
         "top_picks": len(payload.top_picks),
         "new_today": len(payload.new_today),

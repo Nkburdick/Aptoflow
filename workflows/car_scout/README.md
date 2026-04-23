@@ -11,9 +11,10 @@ Runs every 2 hours on Modal:
 4. Fires a **unicorn SMS** via Pennyworth when a primary-tier vehicle hits all 5 strict criteria (new listing OR ≥5% price drop, CarGurus Great OR ≥10% below market, bottom-25 miles for its year, confirmed clean title, primary-tier vehicle).
 5. Saves state to a Modal volume for cross-cycle dedup + price-history tracking.
 
-Once a day at 6:30 AM PT:
+Twice a day (6:30 AM PT and 6:30 PM PT):
 - Assembles an HTML digest (Top Picks / New Today / Price Drops) from the last 24h of tracked listings.
-- Emails it to `nick@aptoworks.com` via Gmail SMTP.
+- Emails it via Resend to the recipients listed in `CAR_SCOUT_DIGEST_TO` (comma-separated).
+- Pulls primary-Subaru trade-ins from Bellingham Ford / Toyota of Bellingham / Audi Bellingham each cycle to close MarketCheck's coverage gap.
 
 ## Setup
 
@@ -58,19 +59,19 @@ modal secret create car-scout-secrets \
   BRIGHTDATA_USERNAME=brd-customer-hl_... \
   BRIGHTDATA_PASSWORD=... \
   CAR_SCOUT_DIGEST_FROM=alfred@aptoworks.com \
-  CAR_SCOUT_DIGEST_TO=nick@aptoworks.com \
+  CAR_SCOUT_DIGEST_TO="nick@aptoworks.com,owenbur09@gmail.com" \
   SCOUT_ZIP=98225 \
-  SCOUT_RADIUS_MI=100 \
-  BUDGET_CEILING_USD=22000 \
+  SCOUT_RADIUS_MI=300 \
+  BUDGET_CEILING_USD=30000 \
   YEAR_FLOOR=2015 \
-  PRIMARY_MILEAGE_CEILING=80000 \
+  PRIMARY_MILEAGE_CEILING=110000 \
   SECONDARY_MILEAGE_CEILING=110000
 ```
 
-Deploy:
+Deploy (must run as a module — the workflow uses relative imports):
 
 ```bash
-modal deploy workflows/car_scout/main.py
+python -m modal deploy -m workflows.car_scout.main
 ```
 
 Two scheduled functions will appear in the Modal dashboard:

@@ -85,6 +85,7 @@ def build_default_scrapers(
     """Instantiate the default set of enabled source scrapers for V1."""
     # Imports deferred to avoid circular imports during module load.
     from .cargurus import CarGurusScraper
+    from .dealer_direct import DealerDirectScraper
 
     return [
         CarGurusScraper(
@@ -94,6 +95,36 @@ def build_default_scrapers(
             budget_ceiling=budget_ceiling,
             year_floor=year_floor,
         ),
-        # Autotrader, Cars.com, dealer-direct sources queued for V1.5 once
-        # CarGurus scraper is battle-tested on live traffic.
+        # Dealer-direct closes MarketCheck's coverage gap on Subaru trade-ins
+        # sitting at non-Subaru dealers (Bellingham Ford, Toyota of Bellingham,
+        # Audi Bellingham). Primary Subarus only.
+        DealerDirectScraper(
+            client,
+            zip_code=zip_code,
+            radius_mi=radius_mi,
+            budget_ceiling=budget_ceiling,
+            year_floor=year_floor,
+        ),
+        # Autotrader, Cars.com queued for V1.5 once current set is battle-tested.
     ]
+
+
+def build_dealer_direct_scraper(client: BrightDataClient) -> AbstractSourceScraper:
+    """Construct just the dealer-direct scraper, bypassing CarGurus.
+
+    The digest path uses this because it pulls primary inventory from
+    MarketCheck already — CarGurus scout path is separate. Centralizing here
+    keeps the dealer-direct config in one module.
+    """
+    from .dealer_direct import DealerDirectScraper
+
+    # zip/radius/budget/year are irrelevant to dealer-direct (URLs are hardcoded
+    # to the 3 Bellingham dealers), but the AbstractSourceScraper signature
+    # requires them. Pass defaults.
+    return DealerDirectScraper(
+        client,
+        zip_code="98225",
+        radius_mi=0,
+        budget_ceiling=0,
+        year_floor=0,
+    )
