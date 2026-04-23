@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, HttpUrl
 Transmission = Literal["auto", "manual", "unknown"]
 TitleStatus = Literal["clean", "salvage", "rebuilt", "unknown"]
 SellerType = Literal["dealer", "private", "unknown"]
-Source = Literal["marketcheck", "cargurus", "autotrader", "cars_com", "dealer_direct"]
+Source = Literal["marketcheck", "cargurus", "autotrader", "cars_com", "dealer_direct", "carmax"]
 Tier = Literal["primary", "secondary"]
 ScoreBand = Literal["unicorn", "great", "good", "fair", "pass"]
 CarGurusRating = Literal["Great", "Good", "Fair", "High", "Overpriced"]
@@ -60,6 +60,10 @@ class Listing(BaseModel):
     city: str | None = None
     state: str | None = None
     distance_mi: int | None = None
+
+    # Estimated CarMax transfer fee to customer ZIP. Only populated for
+    # source="carmax" listings; None for everything else.
+    shipping_fee_estimate: int | None = None
 
     # History badges
     accident_count: int | None = None

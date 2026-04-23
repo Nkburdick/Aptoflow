@@ -57,6 +57,19 @@
 {% endfor %}
 {% endif %}
 
+{% if carmax %}
+<!-- CarMax Nationwide -->
+<tr><td style="padding:20px 24px 8px 24px;">
+<div style="font-size:16px;font-weight:600;color:#1a73e8;">🚚 CarMax (Nationwide) ({{ carmax|length }})</div>
+<div style="font-size:11px;color:#888;margin-top:2px;">Shippable to Bellingham — transfer fees shown per listing.</div>
+</td></tr>
+{% for card in carmax %}
+<tr><td style="padding:6px 24px;">
+{{ render_card(card, emphasize=False) }}
+</td></tr>
+{% endfor %}
+{% endif %}
+
 {% if empty %}
 <tr><td style="padding:32px 24px;text-align:center;color:#666;">
 <div style="font-size:15px;">No new matches in the last 24h.</div>

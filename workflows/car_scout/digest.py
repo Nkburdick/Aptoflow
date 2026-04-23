@@ -57,6 +57,7 @@ class DigestCard:
     city: str | None
     state: str | None
     dealer_name: str | None
+    shipping_fee_estimate: int | None = None
 
 
 @dataclass
@@ -66,13 +67,14 @@ class DigestPayload:
     top_picks: list[DigestCard] = field(default_factory=list)
     new_today: list[DigestCard] = field(default_factory=list)
     price_drops: list[DigestCard] = field(default_factory=list)
+    carmax: list[DigestCard] = field(default_factory=list)
     sources_checked: int = 0
     listings_in_state: int = 0
     last_scout_local: str = ""
 
     @property
     def empty(self) -> bool:
-        return not (self.top_picks or self.new_today or self.price_drops)
+        return not (self.top_picks or self.new_today or self.price_drops or self.carmax)
 
 
 def _to_card(
@@ -100,6 +102,7 @@ def _to_card(
         city=listing.city,
         state=listing.state,
         dealer_name=listing.dealer_name,
+        shipping_fee_estimate=listing.shipping_fee_estimate,
     )
 
 
@@ -140,12 +143,18 @@ def assemble_digest(
     cutoff_new_today = ts - timedelta(hours=NEW_TODAY_WINDOW_HOURS)
 
     # Flatten + filter + dedupe by URL (same listing might show up multiple
-    # times across scout cycles within 24h; we want the latest score)
+    # times across scout cycles within 24h; we want the latest score).
+    # CarMax listings are segregated into their own section — they shouldn't
+    # compete with local inventory for Top Picks / New Today / Price Drops.
     latest: dict[str, tuple[Listing, Score]] = {}
+    carmax_pairs: list[tuple[Listing, Score]] = []
     for listing, score in scored_listings:
         if score.band == "pass":
             continue
         if listing.tier == "secondary" and score.band == "fair":
+            continue
+        if listing.source == "carmax":
+            carmax_pairs.append((listing, score))
             continue
         latest[str(listing.url)] = (listing, score)
 
@@ -192,10 +201,17 @@ def assemble_digest(
         else "never"
     )
 
+    # CarMax: all non-pass-band CarMax listings, ranked by score. No dedupe
+    # against top_picks_last_7_days since CarMax listings are nationwide and
+    # not competing for the local top-pick slots.
+    carmax_pairs.sort(key=lambda pair: pair[1].total, reverse=True)
+    carmax_cards = [_to_card(l, s) for (l, s) in carmax_pairs]
+
     return DigestPayload(
         top_picks=top_picks,
         new_today=new_today,
         price_drops=price_drops,
+        carmax=carmax_cards,
         sources_checked=sources_checked,
         listings_in_state=len(state.listings),
         last_scout_local=last_scout_local,
@@ -266,6 +282,19 @@ def _render_card_html(card: DigestCard, *, emphasize: bool = False, show_old_pri
 
     border = "border:2px solid #b8860b;" if emphasize else "border:1px solid #e0e0e0;"
 
+    shipping_line = ""
+    if card.shipping_fee_estimate is not None:
+        if card.shipping_fee_estimate == 0:
+            shipping_text = "Ships to Bellingham — FREE transfer"
+            shipping_color = "#2e7d32"
+        else:
+            shipping_text = f"Ships to Bellingham — est. ${card.shipping_fee_estimate} transfer fee"
+            shipping_color = "#1a73e8"
+        shipping_line = (
+            f'<div style="font-size:12px;color:{shipping_color};margin-top:4px;font-weight:600;">'
+            f'🚚 {shipping_text}</div>'
+        )
+
     return f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
        style="{border}border-radius:6px;overflow:hidden;">
@@ -275,6 +304,7 @@ def _render_card_html(card: DigestCard, *, emphasize: bool = False, show_old_pri
 <div style="font-size:15px;font-weight:600;">{card.year} {card.make} {card.model}{trim}</div>
 <div style="font-size:12px;color:#666;margin-top:2px;">{card.mileage:,} miles · {history_line}{' · ' + location if location else ''}</div>
 {price_line}
+{shipping_line}
 <div style="margin-top:6px;">{score_badge}{' ' + rating_badge if rating_badge else ''}</div>
 <div style="font-size:12px;color:#555;margin-top:6px;font-style:italic;">{card.reasoning}</div>
 <div style="margin-top:8px;"><a href="{card.url}" style="display:inline-block;padding:6px 12px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:4px;font-size:12px;font-weight:600;">View listing</a></div>
@@ -300,6 +330,9 @@ def render_digest_html(payload: DigestPayload, *, now: datetime | None = None) -
     if not summary_parts:
         summary_parts.append("no new matches")
 
+    if payload.carmax:
+        summary_parts.append(f"{len(payload.carmax)} CarMax")
+
     return tpl.render(
         date_long=ts.strftime("%A, %B %d, %Y"),
         date_short=ts.strftime("%a %m/%d"),
@@ -307,6 +340,7 @@ def render_digest_html(payload: DigestPayload, *, now: datetime | None = None) -
         top_picks=payload.top_picks,
         new_today=payload.new_today,
         price_drops=payload.price_drops,
+        carmax=payload.carmax,
         empty=payload.empty,
         sources_checked=payload.sources_checked,
         listings_in_state=payload.listings_in_state,
@@ -327,6 +361,18 @@ def render_digest_plaintext(payload: DigestPayload) -> str:
         lines.append(f"  {card.url}")
         lines.append("")
 
+    def _add_carmax_card(card: DigestCard) -> None:
+        _add_card(card)
+        if card.shipping_fee_estimate is not None:
+            fee = card.shipping_fee_estimate
+            ship_line = (
+                "  Ships to Bellingham — FREE"
+                if fee == 0
+                else f"  Ships to Bellingham — est. ${fee}"
+            )
+            # Insert the shipping line before the trailing blank line
+            lines.insert(-1, ship_line)
+
     if payload.top_picks:
         lines.append("## TOP PICKS")
         for c in payload.top_picks:
@@ -339,6 +385,10 @@ def render_digest_plaintext(payload: DigestPayload) -> str:
         lines.append(f"## PRICE DROPS ({len(payload.price_drops)})")
         for c in payload.price_drops:
             _add_card(c)
+    if payload.carmax:
+        lines.append(f"## CARMAX NATIONWIDE ({len(payload.carmax)})")
+        for c in payload.carmax:
+            _add_carmax_card(c)
     if payload.empty:
         lines.append("No new matches in the last 24h. Still watching.")
 

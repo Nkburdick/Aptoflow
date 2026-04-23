@@ -175,6 +175,7 @@ class MarketCheckClient:
         radius: int,
         year_min: int | None = None,
         price_max: int | None = None,
+        seller_name: str | None = None,
         max_rows: int = DEFAULT_MAX_ROWS,
     ) -> list[MCListing]:
         """Fetch active listings matching the filters. Returns up to max_rows listings.
@@ -183,6 +184,9 @@ class MarketCheckClient:
         call (no auto-pagination). Set max_rows to the amount you need per
         (make, model) bucket; 50 is the per-page default and typically covers
         the top matches for a local search.
+
+        ``seller_name`` enables vendor-scoped queries (e.g. CarMax-only). Uses
+        MarketCheck's ``seller_name`` filter.
         """
         params = {
             "api_key": self.api_key,
@@ -199,6 +203,8 @@ class MarketCheckClient:
             params["year_min"] = str(year_min)
         if price_max is not None:
             params["price_max"] = str(price_max)
+        if seller_name is not None:
+            params["seller_name"] = seller_name
 
         url = f"{self.base_url}/search/car/active"
         try:
