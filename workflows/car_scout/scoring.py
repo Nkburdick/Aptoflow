@@ -29,6 +29,11 @@ from typing import Iterable, Literal
 from .models import Listing, PriceObservation, Score, ScoreBand, WorkflowState
 from .state import comp_key
 
+# Preference bonuses — applied after weighted components, capped at 100
+CROSSTREK_BONUS = 3.0
+PNW_ARB_BONUS = 2.0
+PNW_STATES: frozenset[str] = frozenset({"WA", "OR", "ID"})
+
 CARGURUS_COMPONENT_TABLE: dict[str | None, float] = {
     "Great": 100.0,
     "Good": 80.0,
@@ -181,19 +186,35 @@ def score_listing(
     # Component D: red-flag component (0-100)
     component_d = _redflag_component(redflag_severity)
 
-    total = 0.30 * component_a + 0.40 * component_b + 0.20 * component_c + 0.10 * component_d
+    weighted = 0.30 * component_a + 0.40 * component_b + 0.20 * component_c + 0.10 * component_d
+
+    crosstrek_bonus = CROSSTREK_BONUS if (listing.make == "Subaru" and listing.model == "Crosstrek") else 0.0
+
+    state_code = (listing.state or "").strip().upper()
+    pnw_arb_bonus = (
+        PNW_ARB_BONUS
+        if listing.make == "Subaru" and state_code and state_code not in PNW_STATES
+        else 0.0
+    )
+
+    total = min(100.0, weighted + crosstrek_bonus + pnw_arb_bonus)
     band = _band_for(total)
 
     # Reasoning blurb — single-line deterministic summary; LLM-enhanced version
     # happens in the digest builder, not here (avoids unnecessary API calls on
     # listings we'll never show).
     flag_hint = f" • flags: {', '.join(redflag_flags)}" if redflag_flags else ""
+    bonus_hint = ""
+    if crosstrek_bonus:
+        bonus_hint += f" • Crosstrek +{int(CROSSTREK_BONUS)}"
+    if pnw_arb_bonus:
+        bonus_hint += f" • out-of-PNW ({state_code}) +{int(PNW_ARB_BONUS)}"
     if median is None:
-        reasoning = f"{band.title()} ({total:.0f}) — low comps, mileage percentile {percentile:.0f}{flag_hint}"
+        reasoning = f"{band.title()} ({total:.0f}) — low comps, mileage percentile {percentile:.0f}{bonus_hint}{flag_hint}"
     else:
         reasoning = (
             f"{band.title()} ({total:.0f}) — {delta_pct * 100:+.0f}% vs "
-            f"${int(median):,} median, mileage pct {percentile:.0f}{flag_hint}"
+            f"${int(median):,} median, mileage pct {percentile:.0f}{bonus_hint}{flag_hint}"
         )
 
     return Score(

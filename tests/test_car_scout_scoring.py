@@ -269,3 +269,158 @@ class TestScoreListing:
         score = score_listing(_listing(mileage=45000, price=18000), state, now=now)
         assert "vs $" in score.reasoning
         assert "mileage pct" in score.reasoning
+
+
+class TestCrosstrekBoost:
+    """+3 flat bonus for Crosstrek — Nick's top target among primary Subarus."""
+
+    def _seed_comps_for_crosstrek(self, state: WorkflowState, now: datetime) -> None:
+        """Populate both price and mileage comps for 2020 Subaru Crosstrek."""
+        bucket = comp_key(2020, "Subaru", "Crosstrek")
+        state.comps[bucket] = [
+            PriceObservation(timestamp=now - timedelta(days=i + 1), price=p)
+            for i, p in enumerate([22000, 21500, 22500])
+        ]
+        for miles, vin in [(90000, "A"), (95000, "B"), (100000, "C")]:
+            merge_listing(
+                state,
+                _listing(vin=vin, mileage=miles, url=f"https://x.example/{vin}", price=22000),
+                now=now,
+            )
+
+    def test_crosstrek_outranks_forester_at_equivalent_profile(self):
+        """A Crosstrek and a Forester with the same price/mileage/condition should rank
+        Crosstrek higher by the exact bonus amount (+3)."""
+        state = WorkflowState()
+        now = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        self._seed_comps_for_crosstrek(state, now)
+        # Forester needs its own comps bucket for an apples-to-apples test
+        bucket_forester = comp_key(2020, "Subaru", "Forester")
+        state.comps[bucket_forester] = [
+            PriceObservation(timestamp=now - timedelta(days=i + 1), price=p)
+            for i, p in enumerate([22000, 21500, 22500])
+        ]
+        for miles, vin in [(90000, "D"), (95000, "E"), (100000, "F")]:
+            merge_listing(
+                state,
+                _listing(
+                    vin=vin,
+                    mileage=miles,
+                    url=f"https://y.example/{vin}",
+                    price=22000,
+                    model="Forester",
+                ),
+                now=now,
+            )
+
+        crosstrek = _listing(price=18500, mileage=42000, cargurus_rating="Great")
+        forester = _listing(
+            price=18500,
+            mileage=42000,
+            cargurus_rating="Great",
+            model="Forester",
+            url="https://y.example/forester",
+            vin="FOR-VIN",
+        )
+        c_score = score_listing(crosstrek, state, now=now)
+        f_score = score_listing(forester, state, now=now)
+        assert c_score.total - f_score.total == pytest.approx(3.0, abs=0.01)
+        assert "Crosstrek +3" in c_score.reasoning
+        assert "Crosstrek +3" not in f_score.reasoning
+
+    def test_non_subaru_gets_no_crosstrek_bonus(self):
+        """The Crosstrek bonus is gated on make=Subaru — a RAV4 named 'Crosstrek' would not trigger it, but we only allow primary/secondary makes anyway."""
+        state = WorkflowState()
+        now = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        # Seed RAV4 comps
+        bucket = comp_key(2020, "Toyota", "RAV4")
+        state.comps[bucket] = [
+            PriceObservation(timestamp=now - timedelta(days=i + 1), price=p)
+            for i, p in enumerate([24000, 23500, 24500])
+        ]
+        for miles, vin in [(80000, "A"), (85000, "B"), (90000, "C")]:
+            merge_listing(
+                state,
+                _listing(
+                    vin=vin,
+                    mileage=miles,
+                    url=f"https://z.example/{vin}",
+                    price=24000,
+                    make="Toyota",
+                    model="RAV4",
+                    tier="secondary",
+                ),
+                now=now,
+            )
+        rav4 = _listing(
+            price=20000,
+            mileage=60000,
+            make="Toyota",
+            model="RAV4",
+            tier="secondary",
+            cargurus_rating="Good",
+        )
+        score = score_listing(rav4, state, now=now)
+        assert "Crosstrek +3" not in score.reasoning
+
+
+class TestPnwArbitrageBoost:
+    """+2 flat bonus for Subarus listed outside WA/OR/ID — PNW premium arbitrage."""
+
+    def _seed_subaru_comps(self, state: WorkflowState, now: datetime) -> None:
+        bucket = comp_key(2020, "Subaru", "Crosstrek")
+        state.comps[bucket] = [
+            PriceObservation(timestamp=now - timedelta(days=i + 1), price=p)
+            for i, p in enumerate([22000, 21500, 22500])
+        ]
+        for miles, vin in [(90000, "A"), (95000, "B"), (100000, "C")]:
+            merge_listing(
+                state,
+                _listing(vin=vin, mileage=miles, url=f"https://x.example/{vin}", price=22000),
+                now=now,
+            )
+
+    def test_georgia_crosstrek_gets_bonus(self):
+        state = WorkflowState()
+        now = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        self._seed_subaru_comps(state, now)
+
+        georgia = _listing(price=18500, mileage=42000, state="GA", cargurus_rating="Great")
+        washington = _listing(
+            price=18500,
+            mileage=42000,
+            state="WA",
+            cargurus_rating="Great",
+            url="https://x.example/wa",
+            vin="WA-VIN",
+        )
+        g_score = score_listing(georgia, state, now=now)
+        w_score = score_listing(washington, state, now=now)
+        # Georgia = Crosstrek(+3) + PNW-arb(+2) = +5 over Washington Crosstrek(+3)
+        assert g_score.total - w_score.total == pytest.approx(2.0, abs=0.01)
+        assert "out-of-PNW (GA) +2" in g_score.reasoning
+        assert "out-of-PNW" not in w_score.reasoning
+
+    def test_null_state_does_not_trigger_bonus(self):
+        """When MarketCheck returns listing with state=None, no arbitrage bonus is
+        applied — we don't know where it is, can't assume it's out-of-PNW."""
+        state = WorkflowState()
+        now = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        self._seed_subaru_comps(state, now)
+
+        null_state = _listing(price=18500, mileage=42000, state=None, cargurus_rating="Great")
+        score = score_listing(null_state, state, now=now)
+        assert "out-of-PNW" not in score.reasoning
+        # Still gets Crosstrek bonus since make=Subaru, model=Crosstrek
+        assert "Crosstrek +3" in score.reasoning
+
+    def test_oregon_is_pnw_no_bonus(self):
+        state = WorkflowState()
+        now = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        self._seed_subaru_comps(state, now)
+
+        oregon = _listing(
+            price=18500, mileage=42000, state="OR", cargurus_rating="Great",
+        )
+        score = score_listing(oregon, state, now=now)
+        assert "out-of-PNW" not in score.reasoning
