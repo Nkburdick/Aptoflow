@@ -361,11 +361,21 @@ def send_digest(
     recipient: str | None = None,
     client: ResendClient | None = None,
 ) -> None:
-    """Send the digest via Resend. Defaults to env vars for addresses."""
-    sender = sender or os.environ.get("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
-    recipient = recipient or os.environ.get("CAR_SCOUT_DIGEST_TO", "")
+    """Send the digest via Resend. Defaults to env vars for addresses.
 
-    missing = [name for name, val in (("sender", sender), ("recipient", recipient)) if not val]
+    ``recipient`` may be a single address or a comma-separated list. Every
+    address receives the email; replies route only to the first recipient
+    (Nick's inbox) regardless of how many total addresses are on the list.
+    """
+    sender = sender or os.environ.get("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+    raw_recipient = recipient or os.environ.get("CAR_SCOUT_DIGEST_TO", "")
+    recipients = [addr.strip() for addr in raw_recipient.split(",") if addr.strip()]
+
+    missing: list[str] = []
+    if not sender:
+        missing.append("sender")
+    if not recipients:
+        missing.append("recipient")
     if missing:
         raise DigestSendError(f"Missing digest config: {', '.join(missing)}")
 
@@ -377,18 +387,18 @@ def send_digest(
     try:
         resend.send(
             from_address=sender,
-            to=recipient,
+            to=recipients,
             subject=subject,
             html=html,
             text=plaintext,
-            reply_to=recipient,  # replies land in Nick's inbox, not alfred@
+            reply_to=recipients[0],  # first recipient only — replies land with Nick, not Owen/etc.
         )
     except ResendSendError as exc:
         raise DigestSendError(str(exc)) from exc
 
     logger.info(
         "digest_sent",
-        extra={"recipient": recipient, "subject": subject, "html_len": len(html)},
+        extra={"recipients": recipients, "subject": subject, "html_len": len(html)},
     )
 
 
