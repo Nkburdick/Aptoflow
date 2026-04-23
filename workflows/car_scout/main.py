@@ -46,6 +46,7 @@ from .models import Listing, Score, WorkflowState
 from .notify import PennyworthNotifyError, format_unicorn_sms, notify_unicorn
 from .scoring import score_listing
 from .sources.base import build_default_scrapers, build_dealer_direct_scraper
+from .sources.carmax_nationwide import fetch_carmax_nationwide_subarus
 from .sources.marketcheck import fetch_all_targets as mc_fetch
 from .state import (
     load_state,
@@ -481,6 +482,35 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         for listing in result.listings:
             merge_listing(state, listing, now=ts)
 
+    # 1a-2. Nationwide CarMax-only Subaru fetch (AM digest cycle only — quota
+    #       protection, 4 extra MC calls/day stays under free-tier cap when
+    #       paired with the existing 14 calls/day). AM cron fires at 13:30 UTC
+    #       (hour=13), PM cron at 01:30 UTC (hour=1), so `hour >= 12` gates AM.
+    carmax_fetch_summary: dict[str, Any] = {"listings": 0, "errors": [], "skipped": False}
+    if ts.hour >= 12:
+        try:
+            with MarketCheckClient() as mc_carmax:
+                carmax_result = fetch_carmax_nationwide_subarus(
+                    mc_carmax,
+                    year_floor=year_floor,
+                    budget_ceiling=budget,
+                )
+        except MarketCheckConfigError as exc:
+            logger.warning("carmax_fetch_config_missing", extra={"error": str(exc)})
+            carmax_fetch_summary["errors"].append(f"config: {exc}")
+        except Exception as exc:  # noqa: BLE001 — never kill the cycle
+            logger.error("carmax_fetch_crashed", extra={"error": str(exc)})
+            carmax_fetch_summary["errors"].append(f"fetch: {exc}")
+        else:
+            carmax_fetch_summary["listings"] = len(carmax_result.listings)
+            carmax_fetch_summary["errors"] = list(carmax_result.errors)
+            carmax_fetch_summary["buckets"] = carmax_result.pages_fetched
+            for listing in carmax_result.listings:
+                merge_listing(state, listing, now=ts)
+    else:
+        carmax_fetch_summary["skipped"] = True
+        logger.info("carmax_fetch_skipped_pm", extra={"hour_utc": ts.hour})
+
     # 1b. Pull Subaru trade-ins from local non-Subaru dealers that MarketCheck
     #     routinely misses (Bellingham Ford, Toyota of Bellingham, Audi
     #     Bellingham). Dedupes against MarketCheck listings by VIN via merge_listing.
@@ -529,11 +559,13 @@ def _run_digest(*, dry_run: bool = False, now: datetime | None = None) -> dict[s
         "started": ts.isoformat(),
         "dry_run": dry_run,
         "marketcheck": mc_fetch_summary,
+        "carmax_nationwide": carmax_fetch_summary,
         "dealer_direct": dealer_direct_summary,
         "vdp_title_verification": vdp_summary,
         "top_picks": len(payload.top_picks),
         "new_today": len(payload.new_today),
         "price_drops": len(payload.price_drops),
+        "carmax": len(payload.carmax),
         "empty": payload.empty,
         "subject": subject,
     }
