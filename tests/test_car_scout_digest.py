@@ -342,11 +342,58 @@ class TestSendDigest:
         mock_client.send.assert_called_once()
         kwargs = mock_client.send.call_args.kwargs
         assert kwargs["from_address"] == "alfred@aptoworks.com"
-        assert kwargs["to"] == "nick@aptoworks.com"
+        assert kwargs["to"] == ["nick@aptoworks.com"]
         assert kwargs["subject"] == "Test"
         assert kwargs["html"] == "<h1>ok</h1>"
         assert kwargs["text"] == "ok"
         assert kwargs["reply_to"] == "nick@aptoworks.com"
+
+    def test_sends_to_multiple_recipients(self, monkeypatch):
+        """Comma-separated CAR_SCOUT_DIGEST_TO splits into a list; reply_to stays the first address."""
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_TO", "nick@aptoworks.com,owenbur09@gmail.com")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        from lib.email import ResendClient, SendResult
+
+        mock_client = MagicMock(spec=ResendClient)
+        mock_client.send.return_value = SendResult(id="email_456")
+
+        send_digest(html="<h1>ok</h1>", plaintext="ok", subject="Test", client=mock_client)
+
+        kwargs = mock_client.send.call_args.kwargs
+        assert kwargs["to"] == ["nick@aptoworks.com", "owenbur09@gmail.com"]
+        # reply_to is the FIRST recipient only — replies never fan out to Owen
+        assert kwargs["reply_to"] == "nick@aptoworks.com"
+
+    def test_trims_whitespace_and_drops_empty_segments(self, monkeypatch):
+        """Recipients with surrounding whitespace are trimmed; empty segments (e.g. trailing comma) are ignored."""
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+        monkeypatch.setenv(
+            "CAR_SCOUT_DIGEST_TO",
+            "  nick@aptoworks.com , ,owenbur09@gmail.com,",
+        )
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        from lib.email import ResendClient, SendResult
+
+        mock_client = MagicMock(spec=ResendClient)
+        mock_client.send.return_value = SendResult(id="email_789")
+
+        send_digest(html="<h1>ok</h1>", plaintext="ok", subject="Test", client=mock_client)
+
+        kwargs = mock_client.send.call_args.kwargs
+        assert kwargs["to"] == ["nick@aptoworks.com", "owenbur09@gmail.com"]
+        assert kwargs["reply_to"] == "nick@aptoworks.com"
+
+    def test_raises_when_recipient_is_only_whitespace(self, monkeypatch):
+        """A CAR_SCOUT_DIGEST_TO value of only whitespace/commas must fail the config check, not silently send to nobody."""
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
+        monkeypatch.setenv("CAR_SCOUT_DIGEST_TO", "  , ,  ,")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        with pytest.raises(DigestSendError, match="recipient"):
+            send_digest(html="<h1></h1>", plaintext="", subject="S")
 
     def test_wraps_send_errors(self, monkeypatch):
         monkeypatch.setenv("CAR_SCOUT_DIGEST_FROM", "alfred@aptoworks.com")
