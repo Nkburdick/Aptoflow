@@ -8,11 +8,18 @@ and filters to the four primary Subaru models.
 Platforms:
 - **Bellingham Ford** (Jazel) — server-rendered HTML, URL path filter by model
 - **Toyota of Bellingham** (DealerInspire) — JS-rendered, Algolia-style filters
-- **Audi Bellingham** (likely Dealer.com) — JS-rendered
+- **Audi Bellingham** (Dealer.com) — JS-rendered (see CAVEAT below)
 
-If Bright Data returns the skeleton shell (JS not rendered), the parser
-returns 0 listings and we log loudly so the 0-listing case is visible.
-First real runs will expose any per-platform selector tuning needs.
+CAVEAT — Dealer.com sites return a JS shell to plain Bright Data fetches.
+Audi Bellingham (and nearby Subaru-trade-in candidates: Sound Ford, Walker's
+Renton Subaru, Carter Subaru Shoreline, Michael's Subaru of Bellevue) all
+hydrate inventory client-side via the Akamai-protected
+`/api/widget/ws-inv-data/getInventory` XHR. The dealercom parser will return
+0 listings for these — closing this gap requires Bright Data JS-rendering
+(paid) or reverse-engineering the DDC API.
+
+The scrape() method emits a WARNING when a fetch succeeds but yields 0
+listings, so the silent-zero case is visible in Modal logs.
 """
 
 from __future__ import annotations
@@ -425,13 +432,26 @@ class DealerDirectScraper(AbstractSourceScraper):
         except Exception as exc:  # noqa: BLE001
             return [], f"parse failed: {exc}"
 
-        logger.info(
-            "dealer_direct_bucket_done",
-            extra={
-                "dealer": dealer.name,
-                "model": model,
-                "listings": len(listings),
-                "html_size": len(html),
-            },
-        )
+        # Distinguish "no Subaru trade-ins right now" from "parser broken / JS
+        # shell only" — known-gap dealercom is expected, others warrant investigation.
+        if not listings:
+            logger.warning(
+                "dealer_direct_zero_listings",
+                extra={
+                    "dealer": dealer.name,
+                    "platform": dealer.parser_key,
+                    "model": model,
+                    "html_size": len(html),
+                },
+            )
+        else:
+            logger.info(
+                "dealer_direct_bucket_done",
+                extra={
+                    "dealer": dealer.name,
+                    "model": model,
+                    "listings": len(listings),
+                    "html_size": len(html),
+                },
+            )
         return listings, None

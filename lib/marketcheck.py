@@ -50,6 +50,16 @@ class MarketCheckFetchError(Exception):
     """Raised when an API call fails."""
 
 
+class MarketCheckSubscriptionError(MarketCheckFetchError):
+    """Raised when MarketCheck rejects a request because it exceeds the
+    current subscription's limits (e.g. radius cap on the free tier).
+
+    Distinguished from generic fetch errors so callers can surface the
+    silent-zero case (entire bucket returns nothing) loudly rather than
+    treating it as a transient failure.
+    """
+
+
 _YEAR_RE = re.compile(r"^\s*(\d{4})\s+")
 
 
@@ -196,8 +206,11 @@ class MarketCheckClient:
             "radius": str(radius),
             "car_type": "used",
             "rows": str(max_rows),
-            "sort_by": "price",
-            "sort_order": "asc",
+            # last_seen desc avoids the cheapest-N bias of price asc — at a 50-row
+            # cap, sorting by price floods results with the rebuilt-title bottom of
+            # the bucket and shadows legitimate dealer inventory.
+            "sort_by": "last_seen",
+            "sort_order": "desc",
         }
         if year_min is not None:
             params["year_min"] = str(year_min)
@@ -212,6 +225,10 @@ class MarketCheckClient:
         except httpx.HTTPError as exc:
             raise MarketCheckFetchError(f"Network error: {exc}") from exc
 
+        if resp.status_code == 422:
+            raise MarketCheckSubscriptionError(
+                f"MarketCheck returned 422: {resp.text[:200]}"
+            )
         if resp.status_code != 200:
             raise MarketCheckFetchError(
                 f"MarketCheck returned {resp.status_code}: {resp.text[:200]}"

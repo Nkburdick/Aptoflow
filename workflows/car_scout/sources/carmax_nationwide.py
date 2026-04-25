@@ -1,9 +1,9 @@
-"""CarMax nationwide adapter — surfaces out-of-PNW Subarus with shipping estimate.
+"""CarMax regional adapter — surfaces local CarMax Subarus with shipping estimate.
 
-CarMax ships any vehicle to any store, so the standard ``SCOUT_RADIUS_MI``
-restriction actively costs us inventory on them. This source queries
-MarketCheck with ``seller_name="CarMax"`` at nationwide scope for each of
-the four primary Subaru models.
+Capped at MarketCheck's free-tier 100mi radius (see NATIONWIDE_RADIUS_MI).
+The shipping-fee scaffolding stays in place so that bumping the radius after
+a paid-tier upgrade (Starter unlocks 250mi, Pro 500mi+) restores genuine
+nationwide behavior without further code changes.
 
 MarketCheck free tier caveat: 4 extra calls/day pushes total to ~540/mo
 against the 500 cap. We run this fetch at the AM cycle only — PM cycle
@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 
 from lib.logger import get_logger
-from lib.marketcheck import MarketCheckClient
+from lib.marketcheck import MarketCheckClient, MarketCheckSubscriptionError
 
 from ..models import Listing, Source
 from .base import SourceResult, tier_for
@@ -28,7 +28,8 @@ from .marketcheck import _to_canonical
 logger = get_logger("car-scout.carmax")
 
 CARMAX_SELLER_NAME = "CarMax"
-NATIONWIDE_RADIUS_MI = 5000  # effectively US-wide
+# Bumping above 100 will 422 the entire bucket on the MC free tier.
+NATIONWIDE_RADIUS_MI = 100
 CARMAX_CUSTOMER_ZIP = "98225"
 
 # Primary Subaru models only — CarMax volume on Imprezas/Crosstreks is the
@@ -139,11 +140,18 @@ def fetch_carmax_nationwide_subarus(
                 max_rows=rows_per_bucket,
             )
             result.pages_fetched += 1
+        except MarketCheckSubscriptionError as exc:
+            result.subscription_errors.append(f"carmax {model}: {str(exc)[:200]}")
+            logger.warning(
+                "carmax_subscription_error",
+                extra={"model": model, "error": str(exc)[:200]},
+            )
+            continue
         except Exception as exc:  # noqa: BLE001 — one bucket's failure shouldn't kill the fetch
             result.errors.append(f"carmax {model}: {exc}")
             logger.warning(
                 "carmax_fetch_bucket_failed",
-                extra={"model": model, "error": str(exc)},
+                extra={"model": model, "error": str(exc)[:200]},
             )
             continue
 

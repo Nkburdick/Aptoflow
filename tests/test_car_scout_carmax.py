@@ -97,15 +97,18 @@ class TestFetchCarMaxNationwideSubarus:
             assert call.kwargs["year_min"] == 2018
             assert call.kwargs["price_max"] == 25000
 
-    def test_nationwide_radius_used(self):
-        """Radius must be large enough to effectively cover the entire US."""
+    def test_radius_within_free_tier_cap(self):
+        """Radius must stay at/under MarketCheck's free-tier 100mi subscription
+        cap. v1.2 dropped the original 5000mi nationwide radius after every
+        query was silently 422'ing — see workflows/car_scout PRD v1.2.
+        """
         mc = MagicMock()
         mc.search_active.return_value = []
 
         fetch_carmax_nationwide_subarus(mc, year_floor=2015, budget_ceiling=30000)
 
         for call in mc.search_active.call_args_list:
-            assert call.kwargs["radius"] >= 3000
+            assert call.kwargs["radius"] <= 100
 
     def test_per_bucket_failure_does_not_crash_aggregate(self):
         """If one (model) query raises, the other three still return."""

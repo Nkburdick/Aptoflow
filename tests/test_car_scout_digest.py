@@ -214,6 +214,101 @@ class TestAssembleDigest:
         assert payload.empty is True
 
 
+class TestWorthALookSection:
+    """v1.2: surface fair-band cars not already in Top Picks / New Today / Price Drops."""
+
+    def test_fair_band_appears_in_worth_a_look(self):
+        state = WorkflowState()
+        # Old listing (so it doesn't trigger New Today), fair band score
+        old_listing = _listing(
+            vin="WAL", url="https://x.example/wal",
+            first_seen=NOW - timedelta(days=3),  # outside the 24h New Today window
+        )
+        payload = assemble_digest(
+            [(old_listing, _score(total=60.0, band="fair", listing_url="https://x.example/wal"))],
+            state,
+            now=NOW,
+        )
+        wal_urls = [c.url for c in payload.worth_a_look]
+        assert "https://x.example/wal" in wal_urls
+
+    def test_top_picks_excluded_from_worth_a_look(self):
+        state = WorkflowState()
+        # Old first_seen so nothing falls into New Today — isolates the
+        # top-picks-vs-worth-a-look exclusion under test.
+        listings = [
+            (_listing(
+                vin=f"V{i}", url=f"https://x.example/{i}",
+                first_seen=NOW - timedelta(days=3),
+             ),
+             _score(total=t, listing_url=f"https://x.example/{i}"))
+            for i, t in enumerate([95.0, 85.0, 75.0, 60.0])
+        ]
+        payload = assemble_digest(listings, state, now=NOW)
+        top_pick_urls = {c.url for c in payload.top_picks}
+        wal_urls = {c.url for c in payload.worth_a_look}
+        assert top_pick_urls.isdisjoint(wal_urls)
+        # Fair-band listing (score=60) should land in worth_a_look since
+        # nothing else promoted it.
+        assert any(c.deal_score == 60 for c in payload.worth_a_look)
+
+    def test_new_today_excluded_from_worth_a_look(self):
+        state = WorkflowState()
+        # Fair-band but freshly seen — should land in New Today, NOT Worth a Look
+        fresh_fair = _listing(vin="FF", url="https://x.example/ff", first_seen=NOW - timedelta(hours=2))
+        payload = assemble_digest(
+            [(fresh_fair, _score(total=60.0, band="fair", listing_url="https://x.example/ff"))],
+            state,
+            now=NOW,
+        )
+        new_today_urls = {c.url for c in payload.new_today}
+        wal_urls = {c.url for c in payload.worth_a_look}
+        assert "https://x.example/ff" in new_today_urls
+        assert "https://x.example/ff" not in wal_urls
+
+    def test_pass_band_excluded_from_worth_a_look(self):
+        state = WorkflowState()
+        garbage = _listing(
+            vin="P", url="https://x.example/p",
+            first_seen=NOW - timedelta(days=3),
+        )
+        payload = assemble_digest(
+            [(garbage, _score(total=40.0, band="pass", listing_url="https://x.example/p"))],
+            state,
+            now=NOW,
+        )
+        assert payload.worth_a_look == []
+
+    def test_worth_a_look_capped(self):
+        from workflows.car_scout.digest import WORTH_A_LOOK_MAX
+        state = WorkflowState()
+        # 8 fair-band listings, all old (no New Today), no top picks
+        listings = [
+            (_listing(
+                vin=f"V{i}", url=f"https://x.example/{i}",
+                first_seen=NOW - timedelta(days=3),
+            ),
+             _score(total=55.0 + i, band="fair", listing_url=f"https://x.example/{i}"))
+            for i in range(8)
+        ]
+        payload = assemble_digest(listings, state, now=NOW)
+        assert len(payload.worth_a_look) == WORTH_A_LOOK_MAX
+
+    def test_worth_a_look_sorted_by_score_desc(self):
+        state = WorkflowState()
+        listings = [
+            (_listing(
+                vin=f"V{i}", url=f"https://x.example/{i}",
+                first_seen=NOW - timedelta(days=3),
+            ),
+             _score(total=t, band="fair", listing_url=f"https://x.example/{i}"))
+            for i, t in enumerate([55.0, 65.0, 60.0])
+        ]
+        payload = assemble_digest(listings, state, now=NOW)
+        scores = [c.deal_score for c in payload.worth_a_look]
+        assert scores == sorted(scores, reverse=True)
+
+
 class TestRecentPriceDrop:
     def test_returns_old_price_on_qualifying_drop(self):
         listing = _listing(
