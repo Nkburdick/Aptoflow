@@ -43,6 +43,9 @@ class SourceResult:
     listings: list[Listing] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     pages_fetched: int = 0
+    # Subscription / quota / radius-cap errors — separated from generic errors
+    # so the operator notices the silent zero-ingestion case in digest summaries.
+    subscription_errors: list[str] = field(default_factory=list)
 
 
 class AbstractSourceScraper(abc.ABC):

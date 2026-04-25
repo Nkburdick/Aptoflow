@@ -227,3 +227,35 @@ class TestDealerDirectScraper:
             year_floor=0,
         )
         assert scraper.name == "dealer_direct"
+
+    def test_zero_listings_emits_warning_log(self, caplog):
+        """v1.2: a successful fetch that yields 0 listings must log at WARNING.
+
+        This makes the "Dealer.com JS shell returns no inventory" silent-zero
+        case visible in Modal logs. Previously logged at INFO and got lost.
+        """
+        import logging
+
+        client = MagicMock()
+        # Return a valid HTML body that has no Subaru cards at all
+        client.fetch.return_value = (
+            "<html><body><h1>Inventory</h1><p>No vehicles match your search.</p></body></html>"
+        )
+        scraper = DealerDirectScraper(
+            client,
+            zip_code="98225",
+            radius_mi=0,
+            budget_ceiling=0,
+            year_floor=0,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="car-scout.dealer-direct"):
+            result = scraper.scrape()
+
+        # All 12 dealer×model combos should warn (every one returned 0 listings)
+        zero_listing_warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "dealer_direct_zero_listings" in r.message
+        ]
+        assert len(zero_listing_warnings) >= 1
+        assert result.listings == []

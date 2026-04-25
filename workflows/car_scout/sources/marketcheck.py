@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 
 from lib.logger import get_logger
-from lib.marketcheck import MarketCheckClient, MCListing
+from lib.marketcheck import MarketCheckClient, MarketCheckSubscriptionError, MCListing
 
 from ..models import Listing, PriceObservation, Transmission, TitleStatus
 from .base import ALL_TARGET_MAKES_MODELS, SourceResult, tier_for
@@ -137,6 +137,21 @@ def fetch_all_targets(
                 max_rows=rows_per_bucket,
             )
             result.pages_fetched += 1
+        except MarketCheckSubscriptionError as exc:
+            # Subscription cap hit → ZERO listings ingested for this bucket.
+            # Track separately and warn so the silent-zero case is visible.
+            result.subscription_errors.append(f"{make} {model}: {str(exc)[:200]}")
+            logger.warning(
+                "marketcheck_subscription_error",
+                extra={
+                    "make": make,
+                    "model": model,
+                    "zip": zip_code,
+                    "radius_mi": radius_mi,
+                    "error": str(exc)[:200],
+                },
+            )
+            continue
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"{make} {model}: {exc}")
             continue

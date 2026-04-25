@@ -57,6 +57,19 @@
 {% endfor %}
 {% endif %}
 
+{% if worth_a_look %}
+<!-- Worth a Look -->
+<tr><td style="padding:20px 24px 8px 24px;">
+<div style="font-size:16px;font-weight:600;color:#555555;">🔎 Worth a Look ({{ worth_a_look|length }})</div>
+<div style="font-size:11px;color:#888;margin-top:2px;">Fair-band cars that didn't crack Top Picks — sift if you have time.</div>
+</td></tr>
+{% for card in worth_a_look %}
+<tr><td style="padding:6px 24px;">
+{{ render_card(card, emphasize=False) }}
+</td></tr>
+{% endfor %}
+{% endif %}
+
 {% if carmax %}
 <!-- CarMax Nationwide -->
 <tr><td style="padding:20px 24px 8px 24px;">

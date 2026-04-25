@@ -31,6 +31,8 @@ TOP_PICK_MAX = 3
 TOP_PICK_MIN_SCORE = 70.0
 NEW_TODAY_WINDOW_HOURS = 24
 PRICE_DROP_THRESHOLD = 0.05
+WORTH_A_LOOK_MAX = 5
+WORTH_A_LOOK_MIN_SCORE = 50.0  # "fair" floor — below this is the "pass" band
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -67,6 +69,7 @@ class DigestPayload:
     top_picks: list[DigestCard] = field(default_factory=list)
     new_today: list[DigestCard] = field(default_factory=list)
     price_drops: list[DigestCard] = field(default_factory=list)
+    worth_a_look: list[DigestCard] = field(default_factory=list)
     carmax: list[DigestCard] = field(default_factory=list)
     sources_checked: int = 0
     listings_in_state: int = 0
@@ -74,7 +77,13 @@ class DigestPayload:
 
     @property
     def empty(self) -> bool:
-        return not (self.top_picks or self.new_today or self.price_drops or self.carmax)
+        return not (
+            self.top_picks
+            or self.new_today
+            or self.price_drops
+            or self.worth_a_look
+            or self.carmax
+        )
 
 
 def _to_card(
@@ -195,6 +204,17 @@ def assemble_digest(
     drop_pairs.sort(key=lambda tup: tup[1].total, reverse=True)
     price_drops = [_to_card(l, s, old_price=old) for (l, s, old) in drop_pairs]
 
+    # Worth a Look: fair-band cars not already promoted to another section.
+    promoted_urls = top_pick_urls | {c.url for c in new_today} | {c.url for c in price_drops}
+    worth_a_look_pairs = [
+        (l, s)
+        for (l, s) in latest.values()
+        if WORTH_A_LOOK_MIN_SCORE <= s.total < TOP_PICK_MIN_SCORE
+        and str(l.url) not in promoted_urls
+    ]
+    worth_a_look_pairs.sort(key=lambda pair: pair[1].total, reverse=True)
+    worth_a_look = [_to_card(l, s) for (l, s) in worth_a_look_pairs[:WORTH_A_LOOK_MAX]]
+
     last_scout_local = (
         state.last_scout_run.astimezone(timezone.utc).strftime(f"%Y-%m-%d %H:%M UTC")
         if state.last_scout_run
@@ -211,6 +231,7 @@ def assemble_digest(
         top_picks=top_picks,
         new_today=new_today,
         price_drops=price_drops,
+        worth_a_look=worth_a_look,
         carmax=carmax_cards,
         sources_checked=sources_checked,
         listings_in_state=len(state.listings),
@@ -327,6 +348,8 @@ def render_digest_html(payload: DigestPayload, *, now: datetime | None = None) -
         summary_parts.append(f"{len(payload.new_today)} new")
     if payload.price_drops:
         summary_parts.append(f"{len(payload.price_drops)} price drop{'s' if len(payload.price_drops) != 1 else ''}")
+    if payload.worth_a_look:
+        summary_parts.append(f"{len(payload.worth_a_look)} worth a look")
     if not summary_parts:
         summary_parts.append("no new matches")
 
@@ -340,6 +363,7 @@ def render_digest_html(payload: DigestPayload, *, now: datetime | None = None) -
         top_picks=payload.top_picks,
         new_today=payload.new_today,
         price_drops=payload.price_drops,
+        worth_a_look=payload.worth_a_look,
         carmax=payload.carmax,
         empty=payload.empty,
         sources_checked=payload.sources_checked,
@@ -384,6 +408,10 @@ def render_digest_plaintext(payload: DigestPayload) -> str:
     if payload.price_drops:
         lines.append(f"## PRICE DROPS ({len(payload.price_drops)})")
         for c in payload.price_drops:
+            _add_card(c)
+    if payload.worth_a_look:
+        lines.append(f"## WORTH A LOOK ({len(payload.worth_a_look)})")
+        for c in payload.worth_a_look:
             _add_card(c)
     if payload.carmax:
         lines.append(f"## CARMAX NATIONWIDE ({len(payload.carmax)})")
