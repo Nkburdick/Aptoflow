@@ -48,8 +48,6 @@ logger = get_logger("car-scout.dealer-direct")
 PRIMARY_SUBARU_MODELS: tuple[str, ...] = (
     "Crosstrek",
     "Forester",
-    "Outback",
-    "Impreza",
 )
 
 

@@ -66,14 +66,14 @@ class TestEstimateShippingFee:
 
 
 class TestFetchCarMaxNationwideSubarus:
-    def test_iterates_four_primary_subaru_models(self):
-        """Must query Crosstrek + Forester + Outback + Impreza — not secondary makes."""
+    def test_iterates_all_primary_subaru_models(self):
+        """Must query every model in PRIMARY_SUBARU_MODELS — not secondary makes."""
         mc = MagicMock()
         mc.search_active.return_value = []  # no results, just count calls
 
         result = fetch_carmax_nationwide_subarus(mc, year_floor=2015, budget_ceiling=30000)
 
-        assert mc.search_active.call_count == 4
+        assert mc.search_active.call_count == len(PRIMARY_SUBARU_MODELS)
         called_models = {call.kwargs["model"] for call in mc.search_active.call_args_list}
         assert called_models == set(PRIMARY_SUBARU_MODELS)
 
@@ -111,7 +111,7 @@ class TestFetchCarMaxNationwideSubarus:
             assert call.kwargs["radius"] <= 100
 
     def test_per_bucket_failure_does_not_crash_aggregate(self):
-        """If one (model) query raises, the other three still return."""
+        """If one (model) query raises, the other still returns."""
         mc = MagicMock()
 
         def flaky_search(**kwargs):
@@ -125,8 +125,8 @@ class TestFetchCarMaxNationwideSubarus:
 
         assert len(result.errors) == 1
         assert "Forester" in result.errors[0]
-        # 3 of 4 buckets succeed
-        assert result.pages_fetched == 3
+        # All non-failing buckets succeed
+        assert result.pages_fetched == len(PRIMARY_SUBARU_MODELS) - 1
 
 
 class TestCarMaxDigestSection:

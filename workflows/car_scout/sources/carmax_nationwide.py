@@ -37,8 +37,6 @@ CARMAX_CUSTOMER_ZIP = "98225"
 PRIMARY_SUBARU_MODELS: tuple[str, ...] = (
     "Crosstrek",
     "Forester",
-    "Outback",
-    "Impreza",
 )
 
 # CarMax transfer-fee tiers based on straight-line distance. Source:

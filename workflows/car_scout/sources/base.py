@@ -12,15 +12,9 @@ from ..models import Listing, Tier
 PRIMARY_MAKES_MODELS: set[tuple[str, str]] = {
     ("Subaru", "Crosstrek"),
     ("Subaru", "Forester"),
-    ("Subaru", "Outback"),
-    ("Subaru", "Impreza"),
 }
 
-SECONDARY_MAKES_MODELS: set[tuple[str, str]] = {
-    ("Toyota", "RAV4"),
-    ("Honda", "CR-V"),
-    ("Mazda", "CX-5"),
-}
+SECONDARY_MAKES_MODELS: set[tuple[str, str]] = set()
 
 ALL_TARGET_MAKES_MODELS = PRIMARY_MAKES_MODELS | SECONDARY_MAKES_MODELS
 

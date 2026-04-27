@@ -118,14 +118,6 @@ class TestParseJazel:
         listings = _parse_jazel(JAZEL_FIXTURE, dealer, "Crosstrek")
         assert all(l.model == "Crosstrek" for l in listings)
 
-    def test_extracts_subaru_impreza(self):
-        dealer = _dealer_by_name("bellingham-ford")
-        listings = _parse_jazel(JAZEL_FIXTURE, dealer, "Impreza")
-        assert len(listings) == 1
-        assert listings[0].model == "Impreza"
-        assert listings[0].year == 2015
-        assert listings[0].mileage == 105200
-
     def test_empty_html_returns_empty(self):
         dealer = _dealer_by_name("bellingham-ford")
         assert _parse_jazel("", dealer, "Crosstrek") == []
@@ -152,18 +144,7 @@ class TestParseDealerInspire:
 
 
 class TestParseDealerCom:
-    def test_extracts_outback(self):
-        dealer = _dealer_by_name("audi-bellingham")
-        listings = _parse_dealercom(DEALERCOM_FIXTURE, dealer, "Outback")
-        assert len(listings) == 1
-        l = listings[0]
-        assert l.model == "Outback"
-        assert l.year == 2017
-        assert l.vin == "JF1GPAR60F1234567"
-        assert l.source == "dealer_direct"
-        assert l.dealer_name == "Audi Bellingham"
-
-    def test_extracts_crosstrek_too(self):
+    def test_extracts_crosstrek(self):
         dealer = _dealer_by_name("audi-bellingham")
         listings = _parse_dealercom(DEALERCOM_FIXTURE, dealer, "Crosstrek")
         assert len(listings) == 1
@@ -189,8 +170,11 @@ class TestDealerDirectScraper:
             year_floor=0,
         )
         result = scraper.scrape()
-        # 3 dealers × 4 primary Subaru models = 12 attempted fetches; all fail
-        assert len(result.errors) == 12
+        # 3 dealers × N primary Subaru models = 3N attempted fetches; all fail.
+        # Asserted relative to the registry so adding/dropping models doesn't
+        # require updating this count.
+        from workflows.car_scout.sources.dealer_direct import DEALERS, PRIMARY_SUBARU_MODELS
+        assert len(result.errors) == len(DEALERS) * len(PRIMARY_SUBARU_MODELS)
         assert result.listings == []
         # No exception bubbled up — that's the point
 
@@ -201,7 +185,7 @@ class TestDealerDirectScraper:
         def fake_fetch(url: str) -> str:
             if "bellinghamford.com" in url and "Crosstrek" in url:
                 return JAZEL_FIXTURE
-            if "bellinghamford.com" in url and "Impreza" in url:
+            if "bellinghamford.com" in url and "Forester" in url:
                 return JAZEL_FIXTURE
             return ""
 
