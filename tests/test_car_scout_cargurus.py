@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from lib.scraping import BrightDataFetchError
-from workflows.car_scout.sources.base import tier_for
+from workflows.car_scout.sources.base import ALL_TARGET_MAKES_MODELS, tier_for
 from workflows.car_scout.sources.cargurus import (
     CarGurusScraper,
     _build_query_url,
@@ -212,11 +212,10 @@ class TestParseListingDict:
         assert len(listing.photos) == 1
         assert str(listing.photos[0]) == "https://a.example/1.jpg"
 
-    def test_secondary_tier_mapping(self):
+    def test_out_of_scope_make_model_returns_none(self):
         raw = _raw_listing(makeName="Toyota", modelName="RAV4")
         listing = _parse_listing_dict(raw, "Toyota", "RAV4")
-        assert listing is not None
-        assert listing.tier == "secondary"
+        assert listing is None  # No tier for non-Subaru make → listing rejected
 
 
 def _build_html_with_nextdata(listings: list[dict]) -> str:
@@ -242,9 +241,9 @@ class TestCarGurusScraper:
 
         result = scraper.scrape()
 
-        # One fetch per (make, model) pair in the tier registry (7 pairs), max_pages=1
-        assert mock_client.fetch.call_count == 7
-        # The Subaru/Crosstrek listing passes; others will parse 0 (fixtures are all Subaru/Crosstrek)
+        # One fetch per (make, model) pair in the tier registry, max_pages=1
+        assert mock_client.fetch.call_count == len(ALL_TARGET_MAKES_MODELS)
+        # The Subaru/Crosstrek listing passes; other (make,model) buckets parse 0
         assert result.source_name == "cargurus"
         assert len(result.listings) == 1
         assert result.listings[0].make == "Subaru"
@@ -288,22 +287,21 @@ class TestCarGurusScraper:
 
         scraper.scrape()
 
-        # Exactly 7 fetches (one page per (make, model) pair); should NOT keep paging past empty
-        assert mock_client.fetch.call_count == 7
+        # One fetch per (make, model) pair; should NOT keep paging past empty
+        assert mock_client.fetch.call_count == len(ALL_TARGET_MAKES_MODELS)
 
 
 class TestTierFor:
     def test_primary_subaru(self):
         assert tier_for("Subaru", "Crosstrek") == "primary"
         assert tier_for("Subaru", "Forester") == "primary"
-        assert tier_for("Subaru", "Outback") == "primary"
-        assert tier_for("Subaru", "Impreza") == "primary"
-
-    def test_secondary_others(self):
-        assert tier_for("Toyota", "RAV4") == "secondary"
-        assert tier_for("Honda", "CR-V") == "secondary"
-        assert tier_for("Mazda", "CX-5") == "secondary"
 
     def test_out_of_scope_returns_none(self):
+        # Dropped from the registry — Owen's family preference is lifted-Subaru only
+        assert tier_for("Subaru", "Outback") is None
+        assert tier_for("Subaru", "Impreza") is None
+        assert tier_for("Toyota", "RAV4") is None
+        assert tier_for("Honda", "CR-V") is None
+        assert tier_for("Mazda", "CX-5") is None
         assert tier_for("Subaru", "BRZ") is None
         assert tier_for("Ford", "Escape") is None
