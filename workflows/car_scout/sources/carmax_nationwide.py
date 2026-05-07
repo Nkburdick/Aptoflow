@@ -91,7 +91,13 @@ def _to_carmax_listing(mc_listing) -> Listing | None:
     listing = _to_canonical(mc_listing)
     if listing is None:
         return None
-    shipping = estimate_shipping_fee(listing.state)
+    # MarketCheck's seller_name=CarMax filter leaks at the 100mi-radius scope —
+    # non-CarMax regional dealers (e.g. Carter Subaru Shoreline) get returned
+    # in the same bucket. Only attach the CarMax transfer-fee estimate when
+    # the actual dealer is a CarMax store; otherwise the shipping line in the
+    # digest would falsely promise a transfer that doesn't exist.
+    is_carmax_store = "carmax" in (listing.dealer_name or "").lower()
+    shipping = estimate_shipping_fee(listing.state) if is_carmax_store else None
     return listing.model_copy(
         update={
             "source": "carmax",
