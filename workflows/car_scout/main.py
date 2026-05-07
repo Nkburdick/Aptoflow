@@ -45,7 +45,7 @@ from .digest import (
 from .models import Listing, Score, WorkflowState
 from .notify import PennyworthNotifyError, format_unicorn_sms, notify_unicorn
 from .scoring import score_listing
-from .sources.base import build_default_scrapers, build_dealer_direct_scraper
+from .sources.base import build_default_scrapers, build_dealer_direct_scraper, tier_for
 from .sources.carmax_nationwide import fetch_carmax_nationwide_subarus
 from .sources.marketcheck import fetch_all_targets as mc_fetch
 from .state import (
@@ -359,10 +359,14 @@ def _verify_pending_titles(state: WorkflowState, *, dry_run: bool) -> dict[str, 
     summary = {"checked": 0, "branded": 0, "clean": 0, "unknown": 0, "errors": 0}
 
     # Narrow the candidate set before incurring fetch costs. Only verify
-    # listings that would otherwise make it to scoring.
+    # listings that would otherwise make it to scoring. State persists
+    # listings from prior tier configurations (e.g. Forester from when it
+    # was a target), so tier_for() is the source-of-truth gate — skip any
+    # listing whose make/model is no longer in the registry.
     candidates = [
         l for l in state.listings.values()
-        if evaluate_title(l).passes
+        if tier_for(l.make, l.model) is not None
+        and evaluate_title(l).passes
         and _color_ok(l)
         and l.dedup_key() not in state.title_verifications
     ]

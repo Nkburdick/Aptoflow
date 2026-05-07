@@ -24,6 +24,7 @@ from lib.email import ResendClient, ResendConfigError, ResendSendError
 from lib.logger import get_logger
 
 from .models import Listing, Score, ScoreBand, WorkflowState
+from .sources.base import tier_for
 
 logger = get_logger("car-scout.digest")
 
@@ -159,6 +160,13 @@ def assemble_digest(
     carmax_pairs: list[tuple[Listing, Score]] = []
     for listing, score in scored_listings:
         if score.band == "pass":
+            continue
+        # Re-check tier against current registry. State persists `listing.tier`
+        # from when the listing was first scraped, so models retired from the
+        # tier registry (e.g. Forester, Outback, Impreza) would still appear
+        # in digests if we trusted the cached value. tier_for() returning None
+        # means "no longer a target model" — drop it.
+        if tier_for(listing.make, listing.model) is None:
             continue
         if listing.tier == "secondary" and score.band == "fair":
             continue
@@ -354,7 +362,7 @@ def render_digest_html(payload: DigestPayload, *, now: datetime | None = None) -
         summary_parts.append("no new matches")
 
     if payload.carmax:
-        summary_parts.append(f"{len(payload.carmax)} CarMax")
+        summary_parts.append(f"{len(payload.carmax)} regional")
 
     return tpl.render(
         date_long=ts.strftime("%A, %B %d, %Y"),
@@ -414,7 +422,7 @@ def render_digest_plaintext(payload: DigestPayload) -> str:
         for c in payload.worth_a_look:
             _add_card(c)
     if payload.carmax:
-        lines.append(f"## CARMAX NATIONWIDE ({len(payload.carmax)})")
+        lines.append(f"## REGIONAL LISTINGS ({len(payload.carmax)})")
         for c in payload.carmax:
             _add_carmax_card(c)
     if payload.empty:

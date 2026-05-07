@@ -1,7 +1,7 @@
 """Unicorn matcher — strict criteria for SMS ping trigger.
 
 All 5 must be true:
-1. Primary tier vehicle (Crosstrek / Forester / Outback / Impreza)
+1. Primary tier vehicle (Crosstrek)
 2. CarGurus "Great Deal" OR market_delta_component >= 85 (~10% below median)
 3. Mileage in the bottom 25th percentile for its (year, make, model)
 4. Clean title CONFIRMED (title_status == "clean", not "unknown")
