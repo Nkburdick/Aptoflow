@@ -47,7 +47,6 @@ logger = get_logger("car-scout.dealer-direct")
 # as trade-ins at these specific dealers, so we scope the scrape tight.
 PRIMARY_SUBARU_MODELS: tuple[str, ...] = (
     "Crosstrek",
-    "Forester",
 )
 
 

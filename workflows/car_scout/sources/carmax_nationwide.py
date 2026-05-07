@@ -36,7 +36,6 @@ CARMAX_CUSTOMER_ZIP = "98225"
 # usable slice. Secondary makes aren't in scope for the nationwide section.
 PRIMARY_SUBARU_MODELS: tuple[str, ...] = (
     "Crosstrek",
-    "Forester",
 )
 
 # CarMax transfer-fee tiers based on straight-line distance. Source:
