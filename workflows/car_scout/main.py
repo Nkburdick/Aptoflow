@@ -341,10 +341,75 @@ def _passes_hard_filters(listing: Listing) -> bool:
     if listing.mileage > mileage_cap:
         return False
 
+    # Per-make allowlist filters (D-2026-05-08, owen-first-car project)
+    if not _passes_make_specific(listing):
+        logger.info(
+            "filtered_on_make_specific",
+            extra={
+                "url": str(listing.url),
+                "make": listing.make,
+                "model": listing.model,
+                "trim": listing.trim,
+                "year": listing.year,
+            },
+        )
+        return False
+
     # Transmission default: auto only (manual override handled via scoring
     # upgrade at a higher layer — here we admit manuals if they're already
     # flagged with a strong deal score, but our hard filter admits both and
     # lets the unicorn matcher / digest decide).
+    return True
+
+
+def _passes_make_specific(listing: Listing) -> bool:
+    """Make/model-specific allowlist filters.
+
+    Per owen-first-car project D-2026-05-08, the scout allowlist is three
+    lifted-SUV models with per-make policy:
+
+    - Subaru Crosstrek: no per-make filter (bullseye)
+    - Ford Bronco Sport: trim must contain "Badlands" or "Wildtrak"
+      (only the 2.0L EcoBoost trims; 1.5L 3-cyl trims hard-filtered for
+      NHTSA 23V-672 engine-fire recall). Year floor 2021 (model launch).
+    - Toyota RAV4: AWD-only, year floor 2019 (TSS 2.0 became standard).
+      Drivetrain is detected via trim + description because Listing has
+      no drivetrain field. Strict on explicit FWD signals; lenient on
+      unknowns (RAV4 trim parsing is unreliable across sources).
+    """
+    make_lower = listing.make.lower()
+    model_lower = listing.model.lower()
+
+    if make_lower == "ford" and "bronco sport" in model_lower:
+        if listing.year < 2021:
+            return False
+        trim = (listing.trim or "").lower()
+        return "badlands" in trim or "wildtrak" in trim
+
+    if make_lower == "toyota" and model_lower == "rav4":
+        if listing.year < 2019:
+            return False
+        trim = (listing.trim or "").lower()
+        desc = (listing.description or "").lower()
+        haystack = f"{trim} {desc}"
+
+        fwd_signals = ("fwd", "front-wheel drive", "front wheel drive", "2wd")
+        if any(s in haystack for s in fwd_signals):
+            return False
+
+        awd_default_trims = ("adventure", "trd off-road", "trd offroad", "trd off road", "hybrid")
+        if any(t in trim for t in awd_default_trims):
+            return True
+
+        awd_signals = ("awd", "all-wheel drive", "all wheel drive", "4wd")
+        if any(s in haystack for s in awd_signals):
+            return True
+
+        # No drivetrain signal — admit and let user verify (RAV4 trim
+        # parsing is unreliable; rejecting unknowns would zero out
+        # legitimate AWD listings missing the suffix).
+        return True
+
     return True
 
 

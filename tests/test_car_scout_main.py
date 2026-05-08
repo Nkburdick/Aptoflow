@@ -115,3 +115,88 @@ class TestColorFilter:
         assert _color_ok(_listing(exterior_color="Dark Burgundy")) is True
         # But bright red rejected
         assert _color_ok(_listing(exterior_color="Ruby Red")) is False
+
+
+class TestMakeSpecificFilters:
+    """D-2026-05-08 owen-first-car: per-make allowlist filters."""
+
+    def test_bronco_sport_badlands_passes(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2022, trim="Badlands")
+        ) is True
+
+    def test_bronco_sport_wildtrak_passes(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2023, trim="Wildtrak")
+        ) is True
+
+    def test_bronco_sport_big_bend_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2022, trim="Big Bend")
+        ) is False
+
+    def test_bronco_sport_outer_banks_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2022, trim="Outer Banks")
+        ) is False
+
+    def test_bronco_sport_no_trim_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2022, trim=None)
+        ) is False
+
+    def test_bronco_sport_pre_2021_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Ford", model="Bronco Sport", year=2020, trim="Badlands")
+        ) is False
+
+    def test_rav4_explicit_awd_in_trim_passes(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2020, trim="XLE AWD")
+        ) is True
+
+    def test_rav4_adventure_passes_no_awd_marker_needed(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2020, trim="Adventure")
+        ) is True
+
+    def test_rav4_trd_off_road_passes(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2021, trim="TRD Off-Road")
+        ) is True
+
+    def test_rav4_hybrid_passes_no_awd_marker_needed(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2020, trim="Hybrid XLE")
+        ) is True
+
+    def test_rav4_explicit_fwd_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2020, trim="LE FWD")
+        ) is False
+
+    def test_rav4_front_wheel_drive_in_description_rejected(self):
+        assert _passes_hard_filters(
+            _listing(
+                make="Toyota",
+                model="RAV4",
+                year=2020,
+                trim="LE",
+                description="Front-Wheel Drive, well maintained",
+            )
+        ) is False
+
+    def test_rav4_no_drivetrain_signal_admitted(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2020, trim="LE")
+        ) is True
+
+    def test_rav4_pre_2019_rejected(self):
+        assert _passes_hard_filters(
+            _listing(make="Toyota", model="RAV4", year=2018, trim="XLE AWD")
+        ) is False
+
+    def test_crosstrek_still_passes_after_make_filter_added(self):
+        assert _passes_hard_filters(
+            _listing(make="Subaru", model="Crosstrek", year=2020, trim="Premium")
+        ) is True
