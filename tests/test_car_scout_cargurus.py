@@ -213,9 +213,10 @@ class TestParseListingDict:
         assert str(listing.photos[0]) == "https://a.example/1.jpg"
 
     def test_out_of_scope_make_model_returns_none(self):
-        raw = _raw_listing(makeName="Toyota", modelName="RAV4")
-        listing = _parse_listing_dict(raw, "Toyota", "RAV4")
-        assert listing is None  # No tier for non-Subaru make → listing rejected
+        # Honda CR-V is excluded per owen-first-car (Tami preference)
+        raw = _raw_listing(makeName="Honda", modelName="CR-V")
+        listing = _parse_listing_dict(raw, "Honda", "CR-V")
+        assert listing is None  # No tier for excluded make/model → listing rejected
 
 
 def _build_html_with_nextdata(listings: list[dict]) -> str:
@@ -292,15 +293,18 @@ class TestCarGurusScraper:
 
 
 class TestTierFor:
-    def test_primary_subaru(self):
+    def test_primary_lifted_suvs(self):
+        # owen-first-car D-2026-05-08: lifted-SUV allowlist across 3 models
         assert tier_for("Subaru", "Crosstrek") == "primary"
-        assert tier_for("Subaru", "Forester") == "primary"
+        assert tier_for("Ford", "Bronco Sport") == "primary"
+        assert tier_for("Toyota", "RAV4") == "primary"
 
     def test_out_of_scope_returns_none(self):
-        # Dropped from the registry — Owen's family preference is lifted-Subaru only
+        # Excluded per owen-first-car (Forester dropped 2026-05-08; others
+        # excluded for stance / size / family pref)
+        assert tier_for("Subaru", "Forester") is None
         assert tier_for("Subaru", "Outback") is None
         assert tier_for("Subaru", "Impreza") is None
-        assert tier_for("Toyota", "RAV4") is None
         assert tier_for("Honda", "CR-V") is None
         assert tier_for("Mazda", "CX-5") is None
         assert tier_for("Subaru", "BRZ") is None

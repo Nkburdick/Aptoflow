@@ -11,6 +11,8 @@ from ..models import Listing, Tier
 
 PRIMARY_MAKES_MODELS: set[tuple[str, str]] = {
     ("Subaru", "Crosstrek"),
+    ("Ford", "Bronco Sport"),
+    ("Toyota", "RAV4"),
 }
 
 SECONDARY_MAKES_MODELS: set[tuple[str, str]] = set()
